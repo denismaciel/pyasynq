@@ -37,6 +37,21 @@ def reset_memory(url: str | None = None) -> None:
     _core.memory_reset(url)
 
 
+def advance_time(broker: str | Asynq, by: float | timedelta) -> None:
+    """Moves the clock of an in-process broker (a ``memory://`` URL, or an
+    app using one) forward by `by` seconds, as if that time had passed:
+    scheduled and retry tasks that become due are made pending, and
+    completed tasks and uniqueness locks that expire are dropped.
+
+    Due times, retention, uniqueness TTLs and group timing follow this
+    clock. Task deadlines, leases and cron schedules run on real time."""
+    url = broker if isinstance(broker, str) else broker.redis_url
+    if not url.startswith("memory://"):
+        raise ValueError(f"advance_time needs a memory:// broker, not {url!r}")
+    seconds = by.total_seconds() if isinstance(by, timedelta) else by
+    _core.memory_advance(url, seconds)
+
+
 class _InlineRunner:
     """Stands in for the Worker inside a TaskContext."""
 

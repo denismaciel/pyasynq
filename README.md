@@ -151,6 +151,17 @@ await drain(app)  # real worker until queues are empty
 
 For tests that go through a real worker without Redis or Postgres, use an in-process broker: `Asynq(memory_url())` (or any `memory://<name>` URL). Every client, worker, inspector and scheduler in the process that opens the same URL shares one store, and `pyasynq.testing.reset_memory()` empties it. It runs the same conformance suite as the other backends. It doesn't persist anything and can't be shared between processes.
 
+Its clock can be moved forward, so retries, scheduled tasks, retention and uniqueness TTLs don't need real waits:
+
+```python
+from pyasynq.testing import advance_time
+info = await report.aenqueue(process_in=timedelta(hours=1))
+advance_time(app, timedelta(hours=1))   # the task is pending now
+await drain(app)
+```
+
+Leases, task deadlines and cron schedules stay on real time, so advancing the clock never makes a running task look abandoned.
+
 **Low-level API:** `pyasynq.Client` and `pyasynq.Worker(handler)` mirror Go's `Client` and `Server` when you don't want the `Asynq` app layer.
 
 ## Postgres backend

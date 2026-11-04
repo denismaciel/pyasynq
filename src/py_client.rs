@@ -381,11 +381,21 @@ fn memory_reset(url: Option<&str>) {
     crate::rdb::memory::reset(url);
 }
 
+/// Moves the clock of the in-process store behind a `memory://` URL forward.
+#[pyfunction]
+fn memory_advance(url: &str, seconds: f64) -> PyResult<()> {
+    let by = std::time::Duration::try_from_secs_f64(seconds)
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("seconds must be non-negative"))?;
+    crate::rdb::memory::advance(url, by);
+    Ok(())
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyClient>()?;
     m.add_class::<PyTaskInfo>()?;
     m.add_function(wrap_pyfunction!(pg_enqueue_statement, m)?)?;
     m.add_function(wrap_pyfunction!(pg_schema, m)?)?;
     m.add_function(wrap_pyfunction!(memory_reset, m)?)?;
+    m.add_function(wrap_pyfunction!(memory_advance, m)?)?;
     Ok(())
 }

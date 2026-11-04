@@ -101,6 +101,15 @@ impl Rdb {
         }
     }
 
+    /// Signaled when a test advanced the store's clock, so time-based
+    /// checks can run without waiting out their interval. Only `memory://`.
+    pub fn clock_notifier(&self) -> Option<Arc<Notify>> {
+        match &self.backend {
+            Backend::Memory(b) => Some(b.clock_notifier()),
+            _ => None,
+        }
+    }
+
     /// Signaled when a task may have become pending, so the processor can
     /// skip the rest of its poll interval. Redis has no such signal.
     pub async fn pending_notifier(&self) -> Option<Arc<Notify>> {

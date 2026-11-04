@@ -37,11 +37,15 @@ pub fn reset(url: Option<&str>) {
 struct Store {
     data: Mutex<Data>,
     pending: Arc<Notify>,
+    /// Signaled when a test advances the clock.
+    advanced: Arc<Notify>,
     cancels: broadcast::Sender<String>,
 }
 
 #[derive(Default)]
 struct Data {
+    /// How far tests moved this store's clock ahead of real time.
+    offset: chrono::Duration,
     queues: BTreeMap<String, Queue>,
     unique_locks: HashMap<String, UniqueLock>,
     servers: BTreeMap<String, Server>,
@@ -93,12 +97,12 @@ impl Task {
         }
     }
 
-    fn info(&self) -> TaskInfo {
+    fn info(&self, now: DateTime<Utc>) -> TaskInfo {
         TaskInfo {
             msg: self.msg.clone(),
             state: self.state,
             next_process_at: match self.state {
-                TaskState::Pending => Some(Utc::now()),
+                TaskState::Pending => Some(now),
                 TaskState::Scheduled | TaskState::Retry => self.process_at,
                 _ => None,
             },
@@ -175,6 +179,13 @@ fn unsupported(state: TaskState) -> Error {
 }
 
 impl Data {
+    /// The store's clock, which task timestamps (due times, retention,
+    /// uniqueness, grouping) follow. Leases, heartbeats and semaphores stay
+    /// on real time, so advancing the clock never abandons a running task.
+    fn now(&self) -> DateTime<Utc> {
+        Utc::now() + self.offset
+    }
+
     fn queue(&self, qname: &str) -> Result<&Queue> {
         self.queues
             .get(qname)
@@ -213,6 +224,68 @@ impl Data {
         Ok(t)
     }
 
+    /// Moves due scheduled and retry tasks to pending (or their group).
+    /// Returns how many moved and whether any became pending.
+    fn forward(&mut self, qname: &str) -> (u64, bool) {
+        let now = self.now();
+        let Some(q) = self.queues.get_mut(qname) else {
+            return (0, false);
+        };
+        let mut moved = 0;
+        let mut pending = false;
+        for t in q.tasks.values_mut() {
+            let due = matches!(t.state, TaskState::Scheduled | TaskState::Retry)
+                && t.process_at.is_some_and(|at| at <= now);
+            if !due {
+                continue;
+            }
+            if t.group_key.is_none() {
+                t.state = TaskState::Pending;
+                t.pending_since = Some(now);
+                pending = true;
+            } else {
+                t.state = TaskState::Aggregating;
+                t.grouped_at = Some(now);
+            }
+            t.process_at = None;
+            moved += 1;
+        }
+        (moved, pending)
+    }
+
+    /// The janitor's work: deletes completed tasks past their retention,
+    /// trims the archive by age and size, and drops expired uniqueness locks.
+    /// Returns how many completed tasks were deleted.
+    fn expire(&mut self, qname: &str) -> u64 {
+        let now = self.now();
+        if let Some(q) = self.queues.get(qname) {
+            let mut archived: Vec<(DateTime<Utc>, &String)> = q
+                .tasks
+                .iter()
+                .filter(|(_, t)| t.state == TaskState::Archived)
+                .map(|(id, t)| (t.archived_at.unwrap_or_default(), id))
+                .collect();
+            archived.sort_by(|a, b| b.cmp(a));
+            let too_old = now - ARCHIVED_EXPIRATION;
+            let trim: HashSet<String> = archived
+                .iter()
+                .enumerate()
+                .filter(|(i, (at, _))| *i as i64 >= MAX_ARCHIVE_SIZE || *at < too_old)
+                .map(|(_, (_, id))| (*id).clone())
+                .collect();
+            self.queues
+                .get_mut(qname)
+                .expect("listed above")
+                .tasks
+                .retain(|id, _| !trim.contains(id));
+        }
+        self.unique_locks.retain(|_, l| l.expires_at > now);
+        let n = self.delete_where(qname, |t| {
+            t.state == TaskState::Completed && t.expires_at.is_some_and(|e| e <= now)
+        });
+        n as u64
+    }
+
     fn count(&mut self, qname: &str, now: DateTime<Utc>, processed: i64, failed: i64) {
         if let Some(q) = self.queues.get_mut(qname) {
             let day = q.stats.entry(now.date_naive()).or_default();
@@ -248,12 +321,21 @@ impl Data {
     }
 }
 
+/// Moves the clock of the store behind `url` forward; see [`MemoryRdb::advance`].
+pub fn advance(url: &str, by: Duration) {
+    MemoryRdb::open(url).advance(by);
+}
+
 pub struct MemoryRdb {
     store: Arc<Store>,
 }
 
 impl MemoryRdb {
     pub async fn connect(url: &str) -> Result<Self> {
+        Ok(Self::open(url))
+    }
+
+    fn open(url: &str) -> Self {
         let store = STORES
             .lock()
             .unwrap()
@@ -262,11 +344,12 @@ impl MemoryRdb {
                 Arc::new(Store {
                     data: Mutex::default(),
                     pending: Arc::new(Notify::new()),
+                    advanced: Arc::new(Notify::new()),
                     cancels: broadcast::channel(256).0,
                 })
             })
             .clone();
-        Ok(Self { store })
+        Self { store }
     }
 
     fn data(&self) -> MutexGuard<'_, Data> {
@@ -278,6 +361,26 @@ impl MemoryRdb {
         self.store.pending.notify_one();
     }
 
+    /// Moves the store's clock forward by `by`, then does what the
+    /// forwarder and janitor would do at the new time.
+    pub fn advance(&self, by: Duration) {
+        let mut d = self.data();
+        d.offset += chrono::Duration::from_std(by).unwrap_or(chrono::Duration::MAX);
+        let qnames: Vec<String> = d.queues.keys().cloned().collect();
+        for q in &qnames {
+            d.forward(q);
+            d.expire(q);
+        }
+        drop(d);
+        self.wake();
+        self.store.advanced.notify_waiters();
+        self.store.advanced.notify_one();
+    }
+
+    pub fn clock_notifier(&self) -> Arc<Notify> {
+        self.store.advanced.clone()
+    }
+
     pub async fn ping(&self) -> Result<()> {
         Ok(())
     }
@@ -286,9 +389,15 @@ impl MemoryRdb {
         self.store.pending.clone()
     }
 
+    /// Inserts a task whose `pending_since`/`process_at` are in real time.
     fn insert(&self, mut task: Task, unique_ttl_secs: Option<i64>) -> Result<()> {
-        let now = Utc::now();
         let mut d = self.data();
+        let now = d.now();
+        task.pending_since = task.pending_since.map(|t| t + d.offset);
+        task.process_at = task.process_at.map(|t| t + d.offset);
+        if task.state == TaskState::Aggregating {
+            task.grouped_at = Some(now);
+        }
         let (qname, id) = (task.msg.queue.clone(), task.msg.id.clone());
         if d.queues
             .get(&qname)
@@ -366,7 +475,6 @@ impl MemoryRdb {
     ) -> Result<()> {
         let mut task = Task::new(msg, TaskState::Aggregating);
         task.group_key = Some(group.to_string());
-        task.grouped_at = Some(Utc::now());
         self.insert(task, unique_ttl_secs)
     }
 
@@ -420,8 +528,8 @@ impl MemoryRdb {
     }
 
     pub async fn done(&self, msg: &TaskMessage) -> Result<()> {
-        let now = Utc::now();
         let mut d = self.data();
+        let now = d.now();
         d.active_mut(msg, None)?;
         let t = d
             .queue_mut(&msg.queue)?
@@ -434,10 +542,10 @@ impl MemoryRdb {
     }
 
     pub async fn mark_as_complete(&self, msg: &TaskMessage) -> Result<()> {
-        let now = Utc::now();
+        let mut d = self.data();
+        let now = d.now();
         let mut msg = msg.clone();
         msg.completed_at = now.timestamp();
-        let mut d = self.data();
         let t = d.active_mut(&msg, None)?;
         t.state = TaskState::Completed;
         t.lease_expires_at = None;
@@ -451,8 +559,8 @@ impl MemoryRdb {
 
     /// Puts an active task back at the head of its queue.
     pub async fn requeue(&self, msg: &TaskMessage) -> Result<()> {
-        let now = Utc::now();
         let mut d = self.data();
+        let now = d.now();
         let head = d
             .queue(&msg.queue)?
             .tasks
@@ -478,18 +586,19 @@ impl MemoryRdb {
         is_failure: bool,
         lease_cutoff: Option<DateTime<Utc>>,
     ) -> Result<()> {
-        let now = Utc::now();
+        let mut d = self.data();
+        let now = d.now();
+        let process_at = ts(retry_at.timestamp()) + d.offset;
         let mut modified = msg.clone();
         if is_failure {
             modified.retried += 1;
         }
         modified.error_msg = err_msg.to_string();
         modified.last_failed_at = now.timestamp();
-        let mut d = self.data();
         let t = d.active_mut(msg, lease_cutoff)?;
         t.state = TaskState::Retry;
         t.msg = modified;
-        t.process_at = Some(ts(retry_at.timestamp()));
+        t.process_at = Some(process_at);
         t.lease_expires_at = None;
         if is_failure {
             d.count(&msg.queue, now, 1, 1);
@@ -504,11 +613,11 @@ impl MemoryRdb {
         err_msg: &str,
         lease_cutoff: Option<DateTime<Utc>>,
     ) -> Result<()> {
-        let now = Utc::now();
+        let mut d = self.data();
+        let now = d.now();
         let mut modified = msg.clone();
         modified.error_msg = err_msg.to_string();
         modified.last_failed_at = now.timestamp();
-        let mut d = self.data();
         let t = d.active_mut(msg, lease_cutoff)?;
         t.state = TaskState::Archived;
         t.msg = modified;
@@ -519,35 +628,13 @@ impl MemoryRdb {
     }
 
     pub async fn forward_if_ready(&self, qname: &str) -> Result<u64> {
-        let now = Utc::now();
         let mut d = self.data();
-        let Some(q) = d.queues.get_mut(qname) else {
-            return Ok(0);
-        };
-        let mut moved = 0;
-        let mut pending = false;
-        for t in q.tasks.values_mut() {
-            let due = matches!(t.state, TaskState::Scheduled | TaskState::Retry)
-                && t.process_at.is_some_and(|at| at <= now);
-            if !due {
-                continue;
-            }
-            if t.group_key.is_none() {
-                t.state = TaskState::Pending;
-                t.pending_since = Some(now);
-                pending = true;
-            } else {
-                t.state = TaskState::Aggregating;
-                t.grouped_at = Some(now);
-            }
-            t.process_at = None;
-            moved += 1;
-        }
+        let moved = d.forward(qname);
         drop(d);
-        if pending {
+        if moved.1 {
             self.wake();
         }
-        Ok(moved)
+        Ok(moved.0)
     }
 
     pub async fn extend_lease(
@@ -620,30 +707,7 @@ impl MemoryRdb {
         qname: &str,
         _batch_size: usize,
     ) -> Result<u64> {
-        let now = Utc::now();
-        let mut d = self.data();
-        if let Some(q) = d.queues.get(qname) {
-            let mut archived: Vec<(DateTime<Utc>, &String)> = q
-                .tasks
-                .iter()
-                .filter(|(_, t)| t.state == TaskState::Archived)
-                .map(|(id, t)| (t.archived_at.unwrap_or_default(), id))
-                .collect();
-            archived.sort_by(|a, b| b.cmp(a));
-            let too_old = now - ARCHIVED_EXPIRATION;
-            let trim: HashSet<String> = archived
-                .iter()
-                .enumerate()
-                .filter(|(i, (at, _))| *i as i64 >= MAX_ARCHIVE_SIZE || *at < too_old)
-                .map(|(_, (_, id))| (*id).clone())
-                .collect();
-            d.queue_mut(qname)?.tasks.retain(|id, _| !trim.contains(id));
-        }
-        d.unique_locks.retain(|_, l| l.expires_at > now);
-        let n = d.delete_where(qname, |t| {
-            t.state == TaskState::Completed && t.expires_at.is_some_and(|e| e <= now)
-        });
-        Ok(n as u64)
+        Ok(self.data().expire(qname))
     }
 
     pub async fn write_result(&self, qname: &str, id: &str, data: &[u8]) -> Result<()> {
@@ -685,13 +749,14 @@ impl MemoryRdb {
         &self,
         qname: &str,
         group: &str,
-        now: DateTime<Utc>,
+        _now: DateTime<Utc>,
         set_id: &str,
         grace_period: Duration,
         max_delay: Duration,
         max_size: usize,
     ) -> Result<bool> {
         let mut d = self.data();
+        let now = d.now();
         let Some(q) = d.queues.get_mut(qname) else {
             return Ok(false);
         };
@@ -870,8 +935,8 @@ impl MemoryRdb {
     }
 
     pub async fn current_stats(&self, qname: &str) -> Result<QueueStats> {
-        let now = Utc::now();
         let d = self.data();
+        let now = d.now();
         let q = d.queue(qname)?;
         let mut s = QueueStats {
             queue: qname.to_string(),
@@ -922,8 +987,8 @@ impl MemoryRdb {
                 "the number of days must be positive".into(),
             ));
         }
-        let now = Utc::now();
         let d = self.data();
+        let now = d.now();
         let q = d.queue(qname)?;
         Ok((0..days)
             .map(|i| {
@@ -942,10 +1007,11 @@ impl MemoryRdb {
 
     pub async fn get_task_info(&self, qname: &str, id: &str) -> Result<TaskInfo> {
         let d = self.data();
+        let now = d.now();
         d.queue(qname)?
             .tasks
             .get(id)
-            .map(Task::info)
+            .map(|t| t.info(now))
             .ok_or(Error::NotFound)
     }
 
@@ -977,6 +1043,7 @@ impl MemoryRdb {
         size: usize,
     ) -> Result<Vec<TaskInfo>> {
         let d = self.data();
+        let now = d.now();
         let q = d.queue(qname)?;
         let group = match state {
             TaskState::Aggregating => Some(group.ok_or_else(|| {
@@ -997,12 +1064,13 @@ impl MemoryRdb {
             .into_iter()
             .skip(page * size)
             .take(size)
-            .map(Task::info)
+            .map(|t| t.info(now))
             .collect())
     }
 
     pub async fn run_task(&self, qname: &str, id: &str) -> Result<()> {
         let mut d = self.data();
+        let now = d.now();
         d.queue(qname)?;
         let t = d.task_mut(qname, id)?;
         match t.state {
@@ -1014,7 +1082,7 @@ impl MemoryRdb {
                     "task is already in pending state".into(),
                 ))
             }
-            _ => t.make_pending(Utc::now()),
+            _ => t.make_pending(now),
         }
         drop(d);
         self.wake();
@@ -1023,6 +1091,7 @@ impl MemoryRdb {
 
     pub async fn archive_task(&self, qname: &str, id: &str) -> Result<()> {
         let mut d = self.data();
+        let now = d.now();
         d.queue(qname)?;
         let t = d.task_mut(qname, id)?;
         match t.state {
@@ -1033,7 +1102,7 @@ impl MemoryRdb {
                 Err(Error::FailedPrecondition("task is already archived".into()))
             }
             _ => {
-                t.make_archived(Utc::now());
+                t.make_archived(now);
                 Ok(())
             }
         }
@@ -1071,13 +1140,14 @@ impl MemoryRdb {
         qname: &str,
         state: TaskState,
         group: Option<&str>,
-        f: impl Fn(&mut Task),
+        f: impl Fn(&mut Task, DateTime<Utc>),
     ) -> Result<i64> {
         let group = match state {
             TaskState::Aggregating => Some(group_required(group)?),
             _ => None,
         };
         let mut d = self.data();
+        let now = d.now();
         let mut n = 0;
         for t in d.queue_mut(qname)?.tasks.values_mut() {
             let matches = match group {
@@ -1085,7 +1155,7 @@ impl MemoryRdb {
                 None => t.state == state,
             };
             if matches {
-                f(t);
+                f(t, now);
                 n += 1;
             }
         }
@@ -1098,8 +1168,7 @@ impl MemoryRdb {
         match state {
             TaskState::Pending | TaskState::Active => Err(unsupported(state)),
             _ => {
-                let now = Utc::now();
-                let n = self.update_all(qname, state, group, |t| t.make_pending(now))?;
+                let n = self.update_all(qname, state, group, Task::make_pending)?;
                 self.wake();
                 Ok(n)
             }
@@ -1117,10 +1186,7 @@ impl MemoryRdb {
             TaskState::Pending
             | TaskState::Aggregating
             | TaskState::Scheduled
-            | TaskState::Retry => {
-                let now = Utc::now();
-                self.update_all(qname, state, group, |t| t.make_archived(now))
-            }
+            | TaskState::Retry => self.update_all(qname, state, group, Task::make_archived),
             s => Err(Error::FailedPrecondition(format!(
                 "cannot archive {} tasks",
                 s.as_str()

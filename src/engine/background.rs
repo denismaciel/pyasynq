@@ -266,14 +266,30 @@ pub async fn aggregator(shared: Arc<Shared>, stop: CancellationToken) {
     let g = &shared.cfg.group;
     let interval = g.grace_period.min(Duration::from_secs(7));
     let queues = shared.queues.names();
-    every(&stop, interval, || async {
-        for q in &queues {
-            if let Err(e) = aggregate_queue(&shared, q).await {
-                wlog!(error, "aggregator: failed to aggregate groups of {q}: {e}");
-            }
+    let clock = shared.rdb.clock_notifier();
+    let advanced = || async {
+        match &clock {
+            Some(n) => n.notified().await,
+            None => std::future::pending().await,
         }
-    })
-    .await;
+    };
+    loop {
+        tokio::select! {
+            _ = stop.cancelled() => return,
+            _ = async {
+                for q in &queues {
+                    if let Err(e) = aggregate_queue(&shared, q).await {
+                        wlog!(error, "aggregator: failed to aggregate groups of {q}: {e}");
+                    }
+                }
+            } => {}
+        }
+        tokio::select! {
+            _ = stop.cancelled() => return,
+            _ = tokio::time::sleep(interval) => {}
+            _ = advanced() => {}
+        }
+    }
 }
 
 async fn aggregate_queue(shared: &Shared, qname: &str) -> crate::rdb::Result<()> {
