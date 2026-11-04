@@ -158,8 +158,8 @@ class Broker:
     def mark_as_complete(self, msg: TaskMessage) -> None: ...
 
 EngineEvent = (
-    tuple[Literal["job"], TaskMessage, datetime]
-    | tuple[Literal["cancel"], str, str]
+    tuple[Literal["job"], int, TaskMessage, datetime]
+    | tuple[Literal["cancel"], int, str, str]
     | tuple[Literal["aggregate"], str, str, str, list[TaskMessage]]
     | tuple[Literal["health"], str | None]
     | tuple[Literal["closed"]]
@@ -196,7 +196,7 @@ class Engine:
     def _anext_events(self, max: int = 256) -> asyncio.Future[list[EngineEvent] | None]: ...
     def ack(
         self,
-        task_id: str,
+        exec: int,
         kind: Literal["success", "retry", "archive", "revoke"],
         *,
         error: str = "",

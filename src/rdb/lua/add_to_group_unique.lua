@@ -12,12 +12,12 @@
 -- Returns 1 if successfully added
 -- Returns 0 if task ID already exists
 -- Returns -1 if task unique key already exists
+if redis.call("EXISTS", KEYS[1]) == 1 then
+	return 0
+end
 local ok = redis.call("SET", KEYS[4], ARGV[2], "NX", "EX", ARGV[5])
 if not ok then
   return -1
-end
-if redis.call("EXISTS", KEYS[1]) == 1 then
-	return 0
 end
 redis.call("HSET", KEYS[1],
            "msg", ARGV[1],

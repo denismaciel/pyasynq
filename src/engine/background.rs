@@ -9,7 +9,7 @@ use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{apply, CancelReason, Event, Shared, SyncRequest, ERR_LEASE_EXPIRED};
+use super::{apply, Event, Shared, SyncRequest, ERR_LEASE_EXPIRED};
 use crate::base::{self, pb};
 
 fn ts(t: DateTime<Utc>) -> prost_types::Timestamp {
@@ -229,7 +229,7 @@ pub async fn subscriber(shared: Arc<Shared>, stop: CancellationToken) {
                 m = messages.next() => match m {
                     Some(m) => {
                         if let Ok(id) = m.get_payload::<String>() {
-                            shared.request_cancel(&id, CancelReason::Canceled);
+                            shared.cancel_task(&id);
                         }
                     }
                     None => break,

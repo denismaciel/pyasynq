@@ -15,6 +15,7 @@ import inspect
 import logging
 import signal
 import threading
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -83,6 +84,7 @@ def default_retry_delay(retried: int, exc: BaseException, ctx: TaskContext) -> f
 
 @dataclass
 class _Job:
+    exec: int
     ctx: TaskContext
     task: asyncio.Task[Any] | None
     finalized: bool = False
@@ -150,13 +152,13 @@ class Worker:
             group_max_size=group_max_size,
             janitor_interval=seconds(janitor_interval),
             janitor_batch_size=janitor_batch_size,
-            failure_policy=self._rust_failure_policy,
+            failure_policy=_weak_policy(self),
             **opts,
         )
         self._pool_size = thread_pool_size or self._engine.concurrency * 2
         self._pool: ThreadPoolExecutor | None = None
         self._pool_lock = threading.Lock()
-        self._jobs: dict[str, _Job] = {}
+        self._jobs: dict[int, _Job] = {}
         self._background: set[asyncio.Task[Any]] = set()
         self._client: Any = None
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -271,9 +273,9 @@ class Worker:
     def _dispatch(self, ev: tuple[Any, ...]) -> None:
         kind = ev[0]
         if kind == "job":
-            self._start(ev[1], ev[2])
+            self._start(ev[1], ev[2], ev[3])
         elif kind == "cancel":
-            self._cancel(ev[1], ev[2])
+            self._cancel(ev[1], ev[3])
         elif kind == "aggregate":
             self._spawn(self._aggregate(ev[1], ev[2], ev[3], ev[4]))
         elif kind == "health":
@@ -282,6 +284,7 @@ class Worker:
                 self._spawn(self._call_user(self._health_check, err))
         elif kind == "closed":
             for job in self._jobs.values():
+                job.finalized = True
                 job.ctx._mark_cancelled("shutdown")
                 if job.task is not None:
                     job.task.cancel()
@@ -292,32 +295,37 @@ class Worker:
         self._background.add(t)
         t.add_done_callback(self._background.discard)
 
-    def _start(self, msg: _core.TaskMessage, deadline: datetime) -> None:
+    def _start(self, exec: int, msg: _core.TaskMessage, deadline: datetime) -> None:
         assert self.loop is not None
         ctx = TaskContext(msg, deadline, self._engine, self)
         if deadline <= datetime.now(timezone.utc):
-            self._spawn(self._fail(ctx, DeadlineExceeded()))
+            self._spawn(self._fail(exec, ctx, DeadlineExceeded()))
             return
         task = self.loop.create_task(self._invoke(ctx), name=f"pyasynq:{msg.type}:{msg.id}")
-        self._jobs[msg.id] = _Job(ctx, task)
-        task.add_done_callback(functools.partial(self._on_done, msg.id))
+        self._jobs[exec] = _Job(exec, ctx, task)
+        task.add_done_callback(functools.partial(self._on_done, exec))
 
-    def _on_done(self, task_id: str, task: asyncio.Task[Any]) -> None:
-        job = self._jobs.pop(task_id, None)
-        if job is None or job.finalized or task.cancelled():
+    def _on_done(self, exec: int, task: asyncio.Task[Any]) -> None:
+        job = self._jobs.pop(exec, None)
+        if job is None or job.finalized:
+            return
+        if task.cancelled():
+            # Not cancelled by the engine (that sets `finalized`): the
+            # handler raised CancelledError itself.
+            self._spawn(self._fail(exec, job.ctx, TaskCanceled()))
             return
         exc = task.exception()
         if exc is None:
             result = task.result()
             if isinstance(result, (bytes, bytearray, memoryview)):
-                self._engine.ack(task_id, "success", result=bytes(result))
+                self._engine.ack(exec, "success", result=bytes(result))
             else:
-                self._engine.ack(task_id, "success")
+                self._engine.ack(exec, "success")
         else:
-            self._spawn(self._fail(job.ctx, exc))
+            self._spawn(self._fail(exec, job.ctx, exc))
 
-    def _cancel(self, task_id: str, reason: str) -> None:
-        job = self._jobs.get(task_id)
+    def _cancel(self, exec: int, reason: str) -> None:
+        job = self._jobs.get(exec)
         if job is None or job.finalized:
             return
         job.finalized = True
@@ -325,25 +333,29 @@ class Worker:
         if job.task is not None:
             job.task.cancel()
         if reason == "deadline_exceeded":
-            self._spawn(self._fail(job.ctx, DeadlineExceeded()))
+            self._spawn(self._fail(exec, job.ctx, DeadlineExceeded()))
         elif reason == "canceled":
-            self._spawn(self._fail(job.ctx, TaskCanceled()))
+            self._spawn(self._fail(exec, job.ctx, TaskCanceled()))
         elif reason == "lease_expired":
             self._spawn(self._call_error_handler(job.ctx, LeaseExpired()))
 
-    async def _fail(self, ctx: TaskContext, exc: BaseException) -> None:
+    async def _fail(self, exec: int, ctx: TaskContext, exc: BaseException) -> None:
         await self._call_error_handler(ctx, exc)
         msg = ctx.message
         err = error_message(exc)
         if isinstance(exc, RevokeTask):
             log.warning("revoke task id=%s", ctx.id)
-            self._engine.ack(ctx.id, "revoke", error=err)
-        elif isinstance(exc, SkipRetry) or msg.retried >= msg.retry:
+            self._engine.ack(exec, "revoke", error=err)
+            return
+        if isinstance(exc, SkipRetry):
+            self._engine.ack(exec, "archive", error=err)
+            return
+        delay, is_failure = self._decide(ctx, exc)
+        if is_failure and msg.retried >= msg.retry:
             log.warning("retry exhausted for task id=%s: %s", ctx.id, err)
-            self._engine.ack(ctx.id, "archive", error=err)
+            self._engine.ack(exec, "archive", error=err)
         else:
-            delay, is_failure = self._decide(ctx, exc)
-            self._engine.ack(ctx.id, "retry", error=err, retry_in=delay, is_failure=is_failure)
+            self._engine.ack(exec, "retry", error=err, retry_in=delay, is_failure=is_failure)
 
     def _decide(self, ctx: TaskContext, exc: BaseException) -> tuple[float, bool]:
         try:
@@ -402,3 +414,17 @@ class Worker:
         except Exception:
             # The set is reclaimed into the group by the recoverer later.
             log.exception("failed to aggregate group %r in queue %r", group, queue)
+
+
+def _weak_policy(worker: Worker) -> Callable[[int, str, _core.TaskMessage], tuple[float, bool]]:
+    """The engine's failure policy without a strong reference back to the
+    worker (Rust-held references are invisible to Python's GC)."""
+    ref = weakref.ref(worker)
+
+    def policy(retried: int, err: str, msg: _core.TaskMessage) -> tuple[float, bool]:
+        w = ref()
+        if w is None:
+            return _core.default_retry_delay_seconds(retried), True
+        return w._rust_failure_policy(retried, err, msg)
+
+    return policy

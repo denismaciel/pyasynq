@@ -1,8 +1,7 @@
 //! Port of asynq's `internal/rdb`: every state transition of a task is one
 //! Lua script, so it is atomic on the Redis server.
 
-use std::collections::HashSet;
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -82,20 +81,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Rdb {
     client: redis::Client,
     conn: ConnectionManager,
-    /// Queues already added to `asynq:queues` by this process, to skip a
-    /// round-trip on every enqueue.
-    queues_published: Mutex<HashSet<String>>,
 }
 
 impl Rdb {
     pub async fn connect(url: &str) -> Result<Self> {
         let client = redis::Client::open(url)?;
         let conn = ConnectionManager::new(client.clone()).await?;
-        Ok(Self {
-            client,
-            conn,
-            queues_published: Mutex::new(HashSet::new()),
-        })
+        Ok(Self { client, conn })
     }
 
     pub async fn ping(&self) -> Result<()> {
@@ -104,16 +96,11 @@ impl Rdb {
         Ok(())
     }
 
+    /// Registers the queue on every enqueue (not cached like Go's client),
+    /// so a queue deleted with the Inspector reappears when used again.
     async fn publish_queue(&self, qname: &str) -> Result<()> {
-        if self.queues_published.lock().unwrap().contains(qname) {
-            return Ok(());
-        }
         let mut conn = self.conn.clone();
         let _: i64 = conn.sadd(base::ALL_QUEUES, qname).await?;
-        self.queues_published
-            .lock()
-            .unwrap()
-            .insert(qname.to_string());
         Ok(())
     }
 
@@ -161,6 +148,7 @@ impl Rdb {
             .arg(base::encode_message(msg))
             .arg(process_at_unix)
             .arg(&msg.id)
+            .arg(&msg.group_key)
             .invoke_async(&mut conn)
             .await?;
         status_to_result(n)
@@ -182,6 +170,7 @@ impl Rdb {
             .arg(ttl_secs)
             .arg(process_at_unix)
             .arg(base::encode_message(msg))
+            .arg(&msg.group_key)
             .invoke_async(&mut conn)
             .await?;
         status_to_result(n)

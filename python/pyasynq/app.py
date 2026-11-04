@@ -99,7 +99,10 @@ class TaskDef(Generic[PayloadT, ResultT]):
         hints = typing.get_type_hints(fn)
         self._ctx_param: str | None = None
         self._payload_param: str | None = None
+        self._positional: set[str] = set()
         for p in inspect.signature(fn).parameters.values():
+            if p.kind is p.POSITIONAL_ONLY:
+                self._positional.add(p.name)
             if hints.get(p.name) is TaskContext or (p.name == "ctx" and p.name not in hints):
                 self._ctx_param = p.name
             elif self._payload_param is None and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
@@ -182,10 +185,12 @@ class TaskDef(Generic[PayloadT, ResultT]):
                 raise SkipRetry(f"cannot decode payload: {exc}") from exc
         if self._ctx_param is not None:
             kwargs[self._ctx_param] = ctx
+        # Parameters come in signature order, so positional-only ones lead.
+        args = [kwargs.pop(name) for name in list(kwargs) if name in self._positional]
         if self.is_async:
-            return await self.fn(**kwargs)
+            return await self.fn(*args, **kwargs)
         assert ctx._worker is not None
-        return await ctx._worker.run_in_thread(functools.partial(self.fn, **kwargs))
+        return await ctx._worker.run_in_thread(functools.partial(self.fn, *args, **kwargs))
 
 
 def _wrap(

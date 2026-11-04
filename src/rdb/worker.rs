@@ -123,6 +123,7 @@ impl Rdb {
                 let n: u64 = FORWARD
                     .key(&delayed)
                     .key(base::pending_key(qname))
+                    .key(base::all_groups(qname))
                     .arg(now.timestamp())
                     .arg(base::task_key_prefix(qname))
                     .arg(now.timestamp_nanos_opt().unwrap_or_default())

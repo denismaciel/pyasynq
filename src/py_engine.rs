@@ -50,11 +50,13 @@ impl<'py> IntoPyObject<'py> for Events {
         let out = PyList::empty(py);
         for ev in self.0 {
             let item = match ev {
-                Event::Job { msg, deadline } => {
-                    ("job", PyTaskMessage::from(msg), deadline).into_bound_py_any(py)?
-                }
-                Event::Cancel { id, reason } => {
-                    ("cancel", id, reason.as_str()).into_bound_py_any(py)?
+                Event::Job {
+                    exec,
+                    msg,
+                    deadline,
+                } => ("job", exec, PyTaskMessage::from(msg), deadline).into_bound_py_any(py)?,
+                Event::Cancel { exec, id, reason } => {
+                    ("cancel", exec, id, reason.as_str()).into_bound_py_any(py)?
                 }
                 Event::Aggregate {
                     queue,
@@ -200,13 +202,14 @@ impl PyEngine {
         })
     }
 
-    /// Records a task outcome; never blocks. `kind` is one of "success",
-    /// "retry", "archive", "revoke". Returns False if the task is no longer
-    /// owned by this worker (e.g. its deadline already failed it).
-    #[pyo3(signature = (task_id, kind, *, error = "", retry_in = 0.0, is_failure = true, result = None))]
+    /// Records the outcome of execution `exec` (from its "job" event); never
+    /// blocks. `kind` is one of "success", "retry", "archive", "revoke".
+    /// Returns False if the execution is no longer owned by this worker
+    /// (e.g. its deadline already failed it).
+    #[pyo3(signature = (exec, kind, *, error = "", retry_in = 0.0, is_failure = true, result = None))]
     fn ack(
         &self,
-        task_id: &str,
+        exec: u64,
         kind: &str,
         error: &str,
         retry_in: f64,
@@ -226,7 +229,7 @@ impl PyEngine {
             },
             other => return Err(PyValueError::new_err(format!("unknown ack kind {other:?}"))),
         };
-        Ok(self.engine.shared.ack(task_id, outcome))
+        Ok(self.engine.shared.ack(exec, outcome))
     }
 
     fn _awrite_result<'py>(

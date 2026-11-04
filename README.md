@@ -143,6 +143,16 @@ await drain(app)  # real worker until queues are empty
 
 **Low-level API:** `pyasynq.Client` and `pyasynq.Worker(handler)` mirror Go's `Client` and `Server` when you don't want the `Asynq` app layer.
 
+## Differences from Go asynq
+
+The data format and Redis layout are the same as asynq v0.26. pyasynq fixes a few of asynq's edge cases:
+
+- Errors that don't count as failures (`RateLimited`, or `is_failure` returning False) are retried without using up `max_retry`.
+- `timeout` and `retention` under one second raise `ValueError`. Go silently truncates them to 0, which means "unset".
+- Delayed tasks with a `group` (`process_in` combined with `group`) join their group when due, and failed aggregations are put back into their group instead of being stranded.
+- `delete_queue` also counts completed, grouped and aggregating tasks. `force=True` removes them.
+- A task-ID conflict doesn't leave a uniqueness lock behind, and a deleted queue reappears when a client enqueues into it again.
+
 ## Development
 
 Everything you need (Rust, Python, uv, maturin, Redis, Go) comes from the Nix dev shell:

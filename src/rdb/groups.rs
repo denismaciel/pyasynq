@@ -125,7 +125,9 @@ impl Rdb {
         let mut conn = self.conn.clone();
         let _: () = RECLAIM_STALE_AGGREGATION_SETS
             .key(base::all_aggregation_sets(qname))
+            .key(base::all_groups(qname))
             .arg(Utc::now().timestamp())
+            .arg(base::group_key_prefix(qname))
             .invoke_async(&mut conn)
             .await?;
         Ok(())

@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use rand::RngExt;
 use tokio_util::sync::CancellationToken;
 
-use super::{CancelReason, Lease, Shared};
+use super::{CancelReason, ExecId, Lease, Shared};
 
 pub async fn run(shared: Arc<Shared>, stop: CancellationToken) {
     let mut last_err_log: Option<Instant> = None;
@@ -63,7 +63,7 @@ fn until(t: DateTime<Utc>) -> Duration {
 /// task is finalized.
 pub async fn watchdog(
     shared: Weak<Shared>,
-    id: String,
+    exec: ExecId,
     deadline: DateTime<Utc>,
     lease: Arc<Lease>,
 ) {
@@ -74,18 +74,18 @@ pub async fn watchdog(
             return;
         };
         if Utc::now() >= deadline {
-            shared.request_cancel(&id, CancelReason::DeadlineExceeded);
+            shared.request_cancel(exec, CancelReason::DeadlineExceeded);
             // Keep watching the lease while Python handles the cancel.
             loop {
                 tokio::time::sleep(until(lease.expires_at())).await;
                 if !lease.is_valid() {
-                    shared.lease_lost(&id);
+                    shared.lease_lost(exec);
                     return;
                 }
             }
         }
         if !lease.is_valid() {
-            shared.lease_lost(&id);
+            shared.lease_lost(exec);
             return;
         }
     }

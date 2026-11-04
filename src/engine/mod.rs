@@ -15,7 +15,7 @@ pub mod processor;
 pub mod queues;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -34,6 +34,11 @@ use queues::QueueOrder;
 pub const ERR_LEASE_EXPIRED: &str = "asynq: task lease expired";
 pub const ERR_DEADLINE_EXCEEDED: &str = "context deadline exceeded";
 pub const ERR_CANCELED: &str = "context canceled";
+
+/// Identifies one attempt at running a task. Task IDs are only unique per
+/// queue and repeat across retries, so every event, timer and ack refers
+/// to the execution instead.
+pub type ExecId = u64;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -130,6 +135,7 @@ impl CancelReason {
 #[derive(Debug)]
 pub enum Event {
     Job {
+        exec: ExecId,
         msg: TaskMessage,
         deadline: DateTime<Utc>,
     },
@@ -137,6 +143,7 @@ pub enum Event {
     /// engine still expects a failure ack; for the others the task has
     /// already been taken care of.
     Cancel {
+        exec: ExecId,
         id: String,
         reason: CancelReason,
     },
@@ -189,14 +196,15 @@ pub fn default_retry_delay(retried: i32) -> Duration {
     Duration::from_secs(n.saturating_pow(4) + 15 + jitter * (n + 1))
 }
 
-/// Archive if the retry budget is spent, else retry with the policy's delay.
+/// Retry with the policy's delay; archive once a failure has spent the
+/// retry budget. Non-failures are retried without using up the budget.
 pub fn failure_outcome(policy: &dyn FailurePolicy, msg: &TaskMessage, err: &str) -> Outcome {
-    if msg.retried >= msg.retry {
+    let (delay, is_failure) = policy.decide(msg, err);
+    if is_failure && msg.retried >= msg.retry {
         return Outcome::Archive {
             err: err.to_string(),
         };
     }
-    let (delay, is_failure) = policy.decide(msg, err);
     Outcome::Retry {
         err: err.to_string(),
         retry_at: Utc::now() + delay,
@@ -280,7 +288,8 @@ pub struct Shared {
     pub queues: QueueOrder,
     pub policy: Arc<dyn FailurePolicy>,
     pub started: DateTime<Utc>,
-    inflight: Mutex<HashMap<String, InFlight>>,
+    inflight: Mutex<HashMap<ExecId, InFlight>>,
+    next_exec: AtomicU64,
     events: mpsc::UnboundedSender<Event>,
     sema: Arc<Semaphore>,
     status: Mutex<Status>,
@@ -318,10 +327,6 @@ impl Shared {
             .collect()
     }
 
-    pub fn is_inflight(&self, id: &str) -> bool {
-        self.inflight.lock().unwrap().contains_key(id)
-    }
-
     /// Registers a dequeued task and hands it to Python.
     fn start_task(
         self: &Arc<Self>,
@@ -331,16 +336,16 @@ impl Shared {
     ) {
         let deadline = compute_deadline(&msg);
         let lease = Arc::new(Lease::new(lease_expires_at));
-        let id = msg.id.clone();
+        let exec = self.next_exec.fetch_add(1, Ordering::Relaxed);
         let mut inflight = self.inflight.lock().unwrap();
         let watchdog = runtime::spawn(processor::watchdog(
             Arc::downgrade(self),
-            id.clone(),
+            exec,
             deadline,
             lease.clone(),
         ));
         inflight.insert(
-            id,
+            exec,
             InFlight {
                 msg: msg.clone(),
                 started: Utc::now(),
@@ -352,13 +357,17 @@ impl Shared {
             },
         );
         drop(inflight);
-        self.emit(Event::Job { msg, deadline });
+        self.emit(Event::Job {
+            exec,
+            msg,
+            deadline,
+        });
     }
 
     /// Removes a task from the in-flight map. Whoever takes it first
     /// (Python ack, cancel fallback, lease loss, shutdown) decides its fate.
-    fn take(&self, id: &str) -> Option<InFlight> {
-        let mut w = self.inflight.lock().unwrap().remove(id)?;
+    fn take(&self, exec: ExecId) -> Option<InFlight> {
+        let mut w = self.inflight.lock().unwrap().remove(&exec)?;
         if let Some(h) = w.watchdog.take() {
             h.abort();
         }
@@ -367,8 +376,8 @@ impl Shared {
 
     /// Records the outcome of a task. Returns false if the task is no
     /// longer ours (already finalized, lease lost, requeued on shutdown).
-    pub fn ack(self: &Arc<Self>, id: &str, outcome: Outcome) -> bool {
-        let Some(w) = self.take(id) else {
+    pub fn ack(self: &Arc<Self>, exec: ExecId, outcome: Outcome) -> bool {
+        let Some(w) = self.take(exec) else {
             return false;
         };
         let this = self.clone();
@@ -402,26 +411,23 @@ impl Shared {
 
     /// Asks Python to stop the handler and ack a failure. If it does not
     /// within `cancel_grace`, the engine records the failure itself.
-    pub fn request_cancel(self: &Arc<Self>, id: &str, reason: CancelReason) {
-        let first = match self.inflight.lock().unwrap().get_mut(id) {
+    pub fn request_cancel(self: &Arc<Self>, exec: ExecId, reason: CancelReason) {
+        let id = match self.inflight.lock().unwrap().get_mut(&exec) {
             Some(w) if !w.cancel_sent => {
                 w.cancel_sent = true;
-                true
+                w.msg.id.clone()
             }
-            _ => false,
+            _ => return,
         };
-        if !first {
-            return;
-        }
         self.emit(Event::Cancel {
-            id: id.to_string(),
+            exec,
+            id: id.clone(),
             reason,
         });
         let this = self.clone();
-        let id = id.to_string();
         runtime::spawn(async move {
             tokio::time::sleep(this.cfg.cancel_grace).await;
-            let Some(w) = this.take(&id) else { return };
+            let Some(w) = this.take(exec) else { return };
             wlog!(
                 warn,
                 "task id={id} was not acked {:?} after cancel; recording failure",
@@ -432,11 +438,28 @@ impl Shared {
         });
     }
 
-    fn lease_lost(&self, id: &str) {
-        if self.take(id).is_some() {
-            wlog!(warn, "lease expired for task id={id}");
+    /// Cancels every running execution of task `id` (asynq's
+    /// CancelProcessing names tasks by ID only).
+    pub fn cancel_task(self: &Arc<Self>, id: &str) {
+        let execs: Vec<ExecId> = self
+            .inflight
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, w)| w.msg.id == id)
+            .map(|(&e, _)| e)
+            .collect();
+        for exec in execs {
+            self.request_cancel(exec, CancelReason::Canceled);
+        }
+    }
+
+    fn lease_lost(&self, exec: ExecId) {
+        if let Some(w) = self.take(exec) {
+            wlog!(warn, "lease expired for task id={}", w.msg.id);
             self.emit(Event::Cancel {
-                id: id.to_string(),
+                exec,
+                id: w.msg.id.clone(),
                 reason: CancelReason::LeaseExpired,
             });
         }
@@ -456,9 +479,10 @@ impl Shared {
 
     /// Shutdown timeout hit: push every unfinished task back to its queue.
     async fn abort_all(&self) {
-        let ids: Vec<String> = self.inflight.lock().unwrap().keys().cloned().collect();
-        for id in ids {
-            let Some(w) = self.take(&id) else { continue };
+        let execs: Vec<ExecId> = self.inflight.lock().unwrap().keys().copied().collect();
+        for exec in execs {
+            let Some(w) = self.take(exec) else { continue };
+            let id = w.msg.id.clone();
             wlog!(warn, "quitting worker; task id={id}");
             if w.lease.is_valid() {
                 match self.rdb.requeue(&w.msg).await {
@@ -467,6 +491,7 @@ impl Shared {
                 }
             }
             self.emit(Event::Cancel {
+                exec,
                 id,
                 reason: CancelReason::Shutdown,
             });
@@ -544,6 +569,7 @@ impl Engine {
             policy,
             started: Utc::now(),
             inflight: Mutex::new(HashMap::new()),
+            next_exec: AtomicU64::new(1),
             events,
             sema: Arc::new(Semaphore::new(cfg.concurrency)),
             status: Mutex::new(Status::New),

@@ -81,8 +81,7 @@ fn parse<T: redis::FromRedisValue>(v: Value) -> Result<T> {
 }
 
 fn opt_bytes(v: Value) -> Result<Option<Vec<u8>>> {
-    let b: Option<Vec<u8>> = parse(v)?;
-    Ok(b.filter(|b| !b.is_empty()))
+    parse(v)
 }
 
 /// Redis list/zset ranges for page `page` of `size` items.
@@ -584,13 +583,16 @@ impl Rdb {
             .key(base::retry_key(qname))
             .key(base::archived_key(qname))
             .key(base::lease_key(qname))
+            .key(base::completed_key(qname))
+            .key(base::all_groups(qname))
+            .key(base::all_aggregation_sets(qname))
             .arg(base::task_key_prefix(qname))
+            .arg(base::group_key_prefix(qname))
             .invoke_async(&mut conn)
             .await?;
         match n {
             1 => {
                 let _: i64 = conn.srem(base::ALL_QUEUES, qname).await?;
-                self.queues_published.lock().unwrap().remove(qname);
                 Ok(())
             }
             -1 => Err(Error::FailedPrecondition(format!(

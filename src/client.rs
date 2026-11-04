@@ -46,6 +46,20 @@ fn invalid(msg: &str) -> Error {
     Error::InvalidArgument(msg.to_string())
 }
 
+/// asynq stores durations as whole seconds, where 0 means unset. Zero stays
+/// zero, other values round up, and values under a second are rejected
+/// rather than silently truncated to "unset".
+fn whole_secs(d: Option<Duration>, name: &str) -> Result<i64, Error> {
+    match d {
+        None => Ok(0),
+        Some(d) if d.is_zero() => Ok(0),
+        Some(d) if d < Duration::from_secs(1) => Err(Error::InvalidArgument(format!(
+            "{name} cannot be less than 1s (asynq stores whole seconds)"
+        ))),
+        Some(d) => Ok(d.as_secs_f64().ceil() as i64),
+    }
+}
+
 /// Builds the message the way Go's `EnqueueContext` does, including its
 /// defaults: 25 retries, and a 30 minute timeout if neither timeout nor
 /// deadline is set.
@@ -91,11 +105,11 @@ pub fn build_message(
         id,
         queue,
         retry: opts.max_retry.unwrap_or(DEFAULT_MAX_RETRY).max(0),
-        timeout: timeout.map_or(0, |d| d.as_secs() as i64),
+        timeout: whole_secs(timeout, "timeout")?,
         deadline: deadline.map_or(0, |d| d.timestamp()),
         unique_key,
         group_key: opts.group.clone().unwrap_or_default(),
-        retention: opts.retention.map_or(0, |d| d.as_secs() as i64),
+        retention: whole_secs(opts.retention, "retention")?,
         ..Default::default()
     })
 }
@@ -108,7 +122,7 @@ pub async fn enqueue(
 ) -> Result<TaskInfo, Error> {
     let msg = build_message(task_type, payload, opts)?;
     let now = Utc::now();
-    let unique_ttl = opts.unique_ttl.map(|d| d.as_secs() as i64);
+    let unique_ttl = opts.unique_ttl.map(|d| d.as_secs_f64().ceil() as i64);
 
     match opts.process_at.filter(|t| *t > now) {
         Some(process_at) => {
@@ -189,8 +203,18 @@ mod tests {
             unique_ttl: Some(Duration::from_millis(500)),
             ..Default::default()
         };
+        let short_timeout = EnqueueOptions {
+            timeout: Some(Duration::from_millis(100)),
+            ..Default::default()
+        };
         assert!(build_message("", None, &EnqueueOptions::default()).is_err());
         assert!(build_message("t", None, &blank_queue).is_err());
         assert!(build_message("t", None, &short_unique).is_err());
+        assert!(build_message("t", None, &short_timeout).is_err());
+        let fractional = EnqueueOptions {
+            timeout: Some(Duration::from_millis(1500)),
+            ..Default::default()
+        };
+        assert_eq!(build_message("t", None, &fractional).unwrap().timeout, 2);
     }
 }
