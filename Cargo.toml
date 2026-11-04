@@ -8,4 +8,12 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
+hex = "0.4.3"
+md-5 = "0.11.0"
+prost = "0.14.4"
+prost-types = "0.14.4"
 pyo3 = { version = "0.30.1", features = ["abi3-py310"] }
+
+[build-dependencies]
+prost-build = "0.14.4"
+protox = "0.10.0"
