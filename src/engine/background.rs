@@ -1,16 +1,15 @@
-//! Periodic loops that keep the server's Redis state healthy.
+//! Periodic loops that keep the server's broker state healthy.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{apply, Event, Shared, SyncRequest, ERR_LEASE_EXPIRED};
-use crate::base::{self, pb};
+use crate::base::pb;
 
 fn ts(t: DateTime<Utc>) -> prost_types::Timestamp {
     prost_types::Timestamp {
@@ -201,17 +200,13 @@ pub async fn syncer(
     }
 }
 
-/// Listens on `asynq:cancel` for `Inspector.cancel_processing`.
+/// Listens for `Inspector.cancel_processing` (Redis `asynq:cancel` pub/sub
+/// or Postgres `LISTEN pyasynq_cancel`).
 pub async fn subscriber(shared: Arc<Shared>, stop: CancellationToken) {
     loop {
-        let pubsub = async {
-            let mut ps = shared.rdb.redis_client().get_async_pubsub().await?;
-            ps.subscribe(base::CANCEL_CHANNEL).await?;
-            Ok::<_, redis::RedisError>(ps)
-        };
-        let mut ps = tokio::select! {
+        let mut ids = tokio::select! {
             _ = stop.cancelled() => return,
-            r = pubsub => match r {
+            r = shared.rdb.subscribe_cancellations() => match r {
                 Ok(ps) => ps,
                 Err(e) => {
                     wlog!(error, "cannot subscribe to cancelation channel: {e}");
@@ -222,16 +217,11 @@ pub async fn subscriber(shared: Arc<Shared>, stop: CancellationToken) {
                 }
             }
         };
-        let mut messages = ps.on_message();
         loop {
             tokio::select! {
                 _ = stop.cancelled() => return,
-                m = messages.next() => match m {
-                    Some(m) => {
-                        if let Ok(id) = m.get_payload::<String>() {
-                            shared.cancel_task(&id);
-                        }
-                    }
+                id = ids.next() => match id {
+                    Some(id) => shared.cancel_task(&id),
                     None => break,
                 }
             }

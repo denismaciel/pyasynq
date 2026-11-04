@@ -1,6 +1,6 @@
 # pyasynq
 
-A distributed task queue for Python, backed by Redis, with the engine written in Rust.
+A distributed task queue for Python, backed by Redis or Postgres, with the engine written in Rust.
 
 pyasynq is a port of Go's [asynq](https://github.com/hibiken/asynq) and is **wire-compatible** with it. Python and Go services can enqueue tasks for each other, run workers on the same queues, and use the same tools ([asynqmon](https://github.com/hibiken/asynqmon), the `asynq` CLI).
 
@@ -143,6 +143,36 @@ await drain(app)  # real worker until queues are empty
 
 **Low-level API:** `pyasynq.Client` and `pyasynq.Worker(handler)` mirror Go's `Client` and `Server` when you don't want the `Asynq` app layer.
 
+## Postgres backend
+
+Pass a `postgres://` URL anywhere a Redis URL goes (`Asynq`, `Client`, `Worker(redis_url=...)`, `Inspector`, `Scheduler`, `Semaphore`). The whole API works the same; the test suite runs one conformance suite against both backends.
+
+```python
+app = Asynq("postgresql://app@localhost/app")
+```
+
+The design follows [procrastinate](https://github.com/procrastinate-org/procrastinate), with the queries issued from Rust:
+
+- Every task is a row in `pyasynq_tasks`, holding the same asynq protobuf message the Redis backend stores, plus indexed columns for its state.
+- Workers claim tasks with `UPDATE ... FOR UPDATE SKIP LOCKED`, so any number of workers can share a queue without blocking each other. Every state transition is a single statement.
+- A trigger runs `NOTIFY` when a task becomes pending. Idle workers `LISTEN` and pick the task up right away, and the poll interval stays as a fallback. `Inspector.cancel_processing` also travels over `NOTIFY`.
+- The schema is created on first connect, guarded by an advisory lock and a version table. To manage it with your own migration tool, apply `pyasynq.postgres.schema_sql()` instead.
+
+The main reason to use it is **transactional enqueue**. The task is committed or rolled back together with your data:
+
+```python
+stmt = send_email.enqueue_statement(Email("a@b.c", "hi"))   # paramstyle="numeric" for asyncpg
+with conn.transaction():                                     # psycopg
+    conn.execute("INSERT INTO users (email) VALUES (%s)", ("a@b.c",))
+    conn.execute(stmt.sql, stmt.params)
+```
+
+Trade-offs:
+
+- Go asynq, asynqmon and the `asynq` CLI only understand the Redis layout.
+- Unique tasks can't be enqueued with `enqueue_statement` (use the client).
+- Postgres is slower than Redis. On a laptop with durable commits, one worker processed about 7k no-op tasks/s on Postgres (it claims up to 32 tasks per statement) and about 20k/s on Redis. Each `Client.enqueue` is its own commit, so one client enqueued about 2k tasks/s on Postgres, against 25k/s on Redis. Several `enqueue_statement`s in one transaction share a commit.
+
 ## Differences from Go asynq
 
 The data format and Redis layout are the same as asynq v0.26. pyasynq fixes a few of asynq's edge cases:
@@ -155,16 +185,16 @@ The data format and Redis layout are the same as asynq v0.26. pyasynq fixes a fe
 
 ## Development
 
-Everything you need (Rust, Python, uv, maturin, Redis, Go) comes from the Nix dev shell:
+Everything you need (Rust, Python, uv, maturin, Redis, Postgres, Go) comes from the Nix dev shell:
 
 ```sh
 nix develop
 make dev    # build the Rust extension into .venv
-make test   # cargo + pytest (spawns its own redis; Go interop tests need go)
+make test   # cargo + pytest (spawns its own redis and postgres; Go interop tests need go)
 make lint
 ```
 
-Layout: `src/` holds the Rust engine and pyo3 bindings (Lua scripts in `src/rdb/lua/`), `python/pyasynq/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
+Layout: `src/` holds the Rust engine and pyo3 bindings. `src/rdb/` has the storage layer: the Redis Lua scripts in `src/rdb/lua/` and the Postgres backend and schema in `src/rdb/pg/`. `python/pyasynq/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
 
 ## License
 

@@ -28,7 +28,14 @@ create_exception!(
     AsynqError,
     "The task is not where the operation expected it to be."
 );
-create_exception!(_core, RedisError, AsynqError, "Redis command failed.");
+create_exception!(
+    _core,
+    BrokerError,
+    AsynqError,
+    "The task storage (Redis or Postgres) failed."
+);
+create_exception!(_core, RedisError, BrokerError, "Redis command failed.");
+create_exception!(_core, PostgresError, BrokerError, "Postgres query failed.");
 create_exception!(
     _core,
     QueueNotFoundError,
@@ -50,6 +57,7 @@ pub fn rdb_err(e: rdb::Error) -> PyErr {
         rdb::Error::FailedPrecondition(_) => FailedPreconditionError::new_err(e.to_string()),
         rdb::Error::QueueNotFound(_) => QueueNotFoundError::new_err(e.to_string()),
         rdb::Error::Redis(_) | rdb::Error::Internal(_) => RedisError::new_err(e.to_string()),
+        rdb::Error::Postgres(_) => PostgresError::new_err(e.to_string()),
     }
 }
 
@@ -59,7 +67,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("DuplicateTaskError", py.get_type::<DuplicateTaskError>())?;
     m.add("TaskIDConflictError", py.get_type::<TaskIDConflictError>())?;
     m.add("TaskNotFoundError", py.get_type::<TaskNotFoundError>())?;
+    m.add("BrokerError", py.get_type::<BrokerError>())?;
     m.add("RedisError", py.get_type::<RedisError>())?;
+    m.add("PostgresError", py.get_type::<PostgresError>())?;
     m.add(
         "FailedPreconditionError",
         py.get_type::<FailedPreconditionError>(),

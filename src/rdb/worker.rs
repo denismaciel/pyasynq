@@ -6,7 +6,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 
-use super::{decode, stats_expire_at, utc_date, Error, Rdb, Result};
+use super::{decode, stats_expire_at, utc_date, Error, RedisRdb, Result};
 use crate::base::{self, pb, TaskMessage};
 
 lua!(REQUEUE, "requeue.lua");
@@ -21,9 +21,11 @@ lua!(LIST_LEASE_EXPIRED, "list_lease_expired.lua");
 pub const MAX_ARCHIVE_SIZE: i64 = 10_000;
 pub const ARCHIVED_EXPIRATION: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
-impl Rdb {
-    pub fn redis_client(&self) -> &redis::Client {
-        &self.client
+impl RedisRdb {
+    pub async fn subscribe_cancellations(&self) -> Result<super::Cancellations> {
+        let mut ps = self.client.get_async_pubsub().await?;
+        ps.subscribe(base::CANCEL_CHANNEL).await?;
+        Ok(super::Cancellations::Redis(Box::pin(ps.into_on_message())))
     }
 
     /// Puts an active task back at the head of its pending list.

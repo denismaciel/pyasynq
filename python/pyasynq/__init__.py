@@ -4,12 +4,14 @@ from pyasynq.client import Client
 from pyasynq.context import TaskContext, current_task
 from pyasynq.errors import (
     AsynqError,
+    BrokerError,
     DeadlineExceeded,
     DuplicateTaskError,
     FailedPreconditionError,
     QueueNotFoundError,
     HandlerNotFound,
     LeaseExpired,
+    PostgresError,
     RedisError,
     RateLimited,
     Retry,
@@ -30,6 +32,7 @@ __version__ = version()
 __all__ = [
     "Asynq",
     "AsynqError",
+    "BrokerError",
     "Client",
     "DeadlineExceeded",
     "DuplicateTaskError",
@@ -39,6 +42,7 @@ __all__ = [
     "HandlerNotFound",
     "Inspector",
     "LeaseExpired",
+    "PostgresError",
     "RedisError",
     "RateLimited",
     "Retry",

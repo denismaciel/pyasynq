@@ -44,6 +44,7 @@
 
               # infra
               redis
+              postgresql_17
               protobuf
               pkg-config
             ];

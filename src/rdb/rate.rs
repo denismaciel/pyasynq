@@ -5,7 +5,7 @@
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 
-use super::{Rdb, Result};
+use super::{RedisRdb, Result};
 
 lua!(SEMAPHORE_ACQUIRE, "semaphore_acquire.lua");
 
@@ -13,7 +13,7 @@ pub fn semaphore_key(scope: &str) -> String {
     format!("asynq:sema:{scope}")
 }
 
-impl Rdb {
+impl RedisRdb {
     pub async fn semaphore_acquire(
         &self,
         scope: &str,

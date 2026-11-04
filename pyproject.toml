@@ -24,6 +24,7 @@ dev = [
     "mypy>=1.13",
     "opentelemetry-sdk>=1.25",
     "prometheus-client>=0.20",
+    "psycopg[binary]>=3.2",
     "pydantic>=2",
     "pytest>=8",
     "pytest-asyncio>=0.24",

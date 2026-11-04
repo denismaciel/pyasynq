@@ -6,7 +6,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 
-use super::{decode, status_to_result, Rdb, Result};
+use super::{decode, status_to_result, RedisRdb, Result};
 use crate::base::{self, TaskMessage};
 
 lua!(ADD_TO_GROUP, "add_to_group.lua");
@@ -23,7 +23,7 @@ lua!(
 /// group by the recoverer.
 pub const AGGREGATION_TIMEOUT: Duration = Duration::from_secs(120);
 
-impl Rdb {
+impl RedisRdb {
     pub async fn add_to_group(
         &self,
         msg: &TaskMessage,

@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use prost::Message;
 use redis::AsyncCommands;
 
-use super::{Rdb, Result};
+use super::{RedisRdb, Result};
 use crate::base::{self, pb};
 
 lua!(WRITE_SCHEDULER_ENTRIES, "write_scheduler_entries.lua");
@@ -19,7 +19,7 @@ lua!(
 /// Enqueue events kept per entry.
 pub const MAX_EVENTS: i64 = 1000;
 
-impl Rdb {
+impl RedisRdb {
     pub async fn write_scheduler_entries(
         &self,
         scheduler_id: &str,

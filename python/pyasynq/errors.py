@@ -6,8 +6,10 @@ from datetime import timedelta
 
 from pyasynq._core import (
     AsynqError,
+    BrokerError,
     DuplicateTaskError,
     FailedPreconditionError,
+    PostgresError,
     QueueNotFoundError,
     RedisError,
     TaskIDConflictError,
@@ -16,8 +18,10 @@ from pyasynq._core import (
 
 __all__ = [
     "AsynqError",
+    "BrokerError",
     "DuplicateTaskError",
     "FailedPreconditionError",
+    "PostgresError",
     "QueueNotFoundError",
     "RedisError",
     "TaskIDConflictError",
@@ -83,7 +87,7 @@ class DeadlineExceeded(AsynqError, TimeoutError):
 
 
 class LeaseExpired(AsynqError):
-    """The worker could not extend the task lease (Redis unreachable); the
+    """The worker could not extend the task lease (broker unreachable); the
     recoverer will retry the task elsewhere."""
 
     def __init__(self, message: str = "asynq: task lease expired"):

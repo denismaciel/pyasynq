@@ -3,11 +3,13 @@ be errors (warn_unused_ignores turns a missing error into a failure)."""
 
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from typing_extensions import assert_type
 
 from pyasynq import Asynq, Inspector, TaskContext, TaskDef, TaskInfo
 from pyasynq._core import TaskState
+from pyasynq.postgres import EnqueueStatement
 from pyasynq.testing import run_task
 
 app = Asynq()
@@ -55,6 +57,11 @@ async def check() -> None:
     assert_type(await app.wait_result(info), dict[str, bool])
     assert_type(render.enqueue(1).state, TaskState)
 
+    stmt = send.enqueue_statement(Email("a@b.c"), process_in=5, paramstyle="numeric")
+    assert_type(stmt, EnqueueStatement[dict[str, bool]])
+    assert_type(stmt.info, TaskInfo[dict[str, bool]])
+    assert_type(tick.enqueue_statement().params, tuple[Any, ...])
+
     tick.enqueue()
     optional.enqueue()
     optional.enqueue(3)
@@ -67,6 +74,8 @@ async def check() -> None:
     send.enqueue(Email("a@b.c"), timeout="30")  # type: ignore[arg-type]
     await app.client.aenqueue("x", b"", queue=1)  # type: ignore[arg-type]
     Inspector().list_tasks("default", "retrying")  # type: ignore[arg-type]
+    send.enqueue_statement(Email("a@b.c"), unique=60)  # type: ignore[call-arg]
+    send.enqueue_statement(Email("a@b.c"), paramstyle="qmark")  # type: ignore[arg-type]
 
 
 @app.task("bad", proces_in=5)  # type: ignore[call-overload, untyped-decorator]

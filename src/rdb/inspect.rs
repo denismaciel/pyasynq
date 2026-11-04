@@ -8,7 +8,7 @@ use prost::Message;
 use redis::{AsyncCommands, Value};
 
 use super::worker::{ARCHIVED_EXPIRATION, MAX_ARCHIVE_SIZE};
-use super::{decode, utc_date, Error, Rdb, Result};
+use super::{decode, utc_date, Error, RedisRdb, Result};
 use crate::base::{self, pb, TaskState};
 use crate::client::TaskInfo;
 
@@ -90,7 +90,7 @@ fn range(page: usize, size: usize) -> (i64, i64) {
     (start, start + size as i64 - 1)
 }
 
-impl Rdb {
+impl RedisRdb {
     pub async fn all_queues(&self) -> Result<Vec<String>> {
         let mut conn = self.conn.clone();
         let mut qs: Vec<String> = conn.smembers(base::ALL_QUEUES).await?;

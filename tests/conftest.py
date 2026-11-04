@@ -1,5 +1,6 @@
 import json
 import shutil
+import signal
 import socket
 import subprocess
 import time
@@ -47,6 +48,63 @@ def rdb(redis_addr):
     client.flushall()
     yield client
     client.close()
+
+
+@pytest.fixture(scope="session")
+def postgres_dsn(tmp_path_factory):
+    """A throwaway postgres server for the whole test session."""
+    if shutil.which("initdb") is None:
+        pytest.skip("postgres not installed")
+    import psycopg
+
+    root = tmp_path_factory.mktemp("pg")
+    data = root / "data"
+    subprocess.run(
+        ["initdb", "-D", str(data), "-U", "postgres", "--auth=trust", "-E", "UTF8"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    port = _free_port()
+    proc = subprocess.Popen(
+        [
+            "postgres", "-D", str(data), "-p", str(port), "-k", str(root),
+            "-c", "listen_addresses=127.0.0.1", "-c", "max_connections=500",
+            "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    dsn = f"postgresql://postgres@127.0.0.1:{port}/postgres"
+    for _ in range(100):
+        try:
+            psycopg.connect(dsn).close()
+            break
+        except psycopg.OperationalError:
+            time.sleep(0.05)
+    yield dsn
+    # SIGTERM waits for clients to disconnect; SIGINT closes them.
+    proc.send_signal(signal.SIGINT)
+    proc.wait()
+
+
+@pytest.fixture
+def pg_url(postgres_dsn):
+    """A postgres URL with an empty schema; pyasynq creates its tables on connect."""
+    import psycopg
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as conn:
+        conn.execute("DROP SCHEMA public CASCADE")
+        conn.execute("CREATE SCHEMA public")
+    return postgres_dsn
+
+
+@pytest.fixture(params=["redis", "postgres"])
+def broker_url(request):
+    """An empty broker of each backend."""
+    if request.param == "redis":
+        request.getfixturevalue("rdb")
+        return f"redis://{request.getfixturevalue('redis_addr')}/0"
+    return request.getfixturevalue("pg_url")
 
 
 @pytest.fixture
@@ -104,7 +162,7 @@ def make_worker(redis_addr, rdb):
 
 
 @pytest.fixture
-def run_app(rdb):
+def run_app():
     """Runs `app.worker(...)` with fast intervals in the background."""
     import asyncio
     import contextlib

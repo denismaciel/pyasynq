@@ -35,6 +35,7 @@ from pyasynq.client import Client
 from pyasynq.context import TaskContext
 from pyasynq.errors import AsynqError, HandlerNotFound, SkipRetry
 from pyasynq.inspector import Inspector
+from pyasynq.postgres import EnqueueStatement, enqueue_statement
 from pyasynq.serde import CONTENT_TYPE, Codec, JsonCodec, RawCodec, codec_for, encode_result
 from pyasynq.task import Task
 from pyasynq.worker import (
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
     from typing_extensions import Unpack
 
     from pyasynq.options import EnqueueOptions, TaskOptions
+    from pyasynq.postgres import ParamStyle, StatementOptions
     from pyasynq.scheduler import Scheduler
 
 PayloadT = TypeVar("PayloadT", contravariant=True)
@@ -155,6 +157,26 @@ class TaskDef(Generic[PayloadT, ResultT]):
     async def aenqueue(self, payload: Any = None, /, **options: Any) -> TaskInfo[ResultT]:
         data, opts = self.message(payload, **options)
         return await self.app.client.aenqueue(self.name, data, **opts)
+
+    @overload
+    def enqueue_statement(
+        self: TaskDef[None, ResultT],
+        /,
+        *,
+        paramstyle: ParamStyle = ...,
+        **options: Unpack[StatementOptions],
+    ) -> EnqueueStatement[ResultT]: ...
+    @overload
+    def enqueue_statement(
+        self, payload: PayloadT, /, *, paramstyle: ParamStyle = ..., **options: Unpack[StatementOptions]
+    ) -> EnqueueStatement[ResultT]: ...
+    def enqueue_statement(
+        self, payload: Any = None, /, *, paramstyle: ParamStyle = "format", **options: Any
+    ) -> EnqueueStatement[ResultT]:
+        """The SQL that enqueues this task from your own Postgres transaction
+        (see `pyasynq.postgres`). Pass ``paramstyle="numeric"`` for asyncpg."""
+        data, opts = self.message(payload, **options)
+        return enqueue_statement(self.name, data, paramstyle=paramstyle, **opts)
 
     @overload
     def task(self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]) -> Task: ...

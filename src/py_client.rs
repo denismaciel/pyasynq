@@ -7,6 +7,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 
+use crate::base::{self, TaskState};
 use crate::client::{self, EnqueueOptions, TaskInfo};
 use crate::py_base::Secs;
 use crate::py_errors::rdb_err;
@@ -285,8 +286,98 @@ impl PyClient {
     }
 }
 
+type PgRow = (
+    String,
+    String,
+    &'static str,
+    Vec<u8>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<String>,
+    Option<DateTime<Utc>>,
+);
+
+/// The `INSERT` that enqueues a task on the Postgres backend, for running
+/// on the application's own connection inside its transaction. Returns the
+/// SQL (`%s` or `$n` placeholders), its parameters, and the task's info.
+#[pyfunction]
+#[pyo3(signature = (
+    task_type, payload = None, *, queue = None, max_retry = None, task_id = None,
+    timeout = None, deadline = None, process_at = None, process_in = None,
+    retention = None, group = None, headers = None, paramstyle = "format",
+))]
+#[allow(clippy::too_many_arguments)]
+fn pg_enqueue_statement(
+    task_type: String,
+    payload: Option<Vec<u8>>,
+    queue: Option<String>,
+    max_retry: Option<i32>,
+    task_id: Option<String>,
+    timeout: Option<Secs>,
+    deadline: Option<DateTime<Utc>>,
+    process_at: Option<DateTime<Utc>>,
+    process_in: Option<Secs>,
+    retention: Option<Secs>,
+    group: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    paramstyle: &str,
+) -> PyResult<(String, PgRow, PyTaskInfo)> {
+    let req = enqueue_request(
+        task_type, payload, queue, max_retry, task_id, timeout, deadline, None, process_at,
+        process_in, retention, group, headers,
+    )?;
+    let msg = client::build_message(&req.task_type, req.payload.as_deref(), &req.opts)
+        .map_err(client_err)?;
+    let now = Utc::now();
+    let (state, pending_since, process_at, grouped_at) = match req.opts.process_at {
+        Some(t) if t > now => (TaskState::Scheduled, None, Some(t), None),
+        _ if req.opts.group.is_some() => (TaskState::Aggregating, None, None, Some(now)),
+        _ => (TaskState::Pending, Some(now), None, None),
+    };
+    let marks: Vec<String> = match paramstyle {
+        "format" => vec!["%s".into(); 8],
+        "numeric" => (1..=8).map(|i| format!("${i}")).collect(),
+        _ => {
+            return Err(PyValueError::new_err(
+                "paramstyle must be \"format\" (psycopg) or \"numeric\" (asyncpg)",
+            ))
+        }
+    };
+    let sql = format!(
+        "INSERT INTO pyasynq_tasks \
+         (queue, id, state, msg, pending_since, process_at, group_key, grouped_at) \
+         VALUES ({})",
+        marks.join(", ")
+    );
+    let row = (
+        msg.queue.clone(),
+        msg.id.clone(),
+        state.as_str(),
+        base::encode_message(&msg),
+        pending_since,
+        process_at,
+        req.opts.group.clone(),
+        grouped_at,
+    );
+    let info = TaskInfo {
+        msg,
+        state,
+        next_process_at: process_at.or(pending_since),
+        result: None,
+    };
+    Ok((sql, row, PyTaskInfo(info)))
+}
+
+/// The Postgres schema as one SQL script.
+#[pyfunction]
+fn pg_schema() -> String {
+    crate::rdb::pg::migration_sql()
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyClient>()?;
     m.add_class::<PyTaskInfo>()?;
+    m.add_function(wrap_pyfunction!(pg_enqueue_statement, m)?)?;
+    m.add_function(wrap_pyfunction!(pg_schema, m)?)?;
     Ok(())
 }

@@ -1,5 +1,7 @@
-//! Port of asynq's `internal/rdb`: every state transition of a task is one
-//! Lua script, so it is atomic on the Redis server.
+//! Task storage. [`Rdb`] dispatches to one of two backends chosen by URL:
+//! the Redis port of asynq's `internal/rdb` (every state transition is one
+//! Lua script, wire-compatible with Go asynq) or [`pg::PgRdb`] (one table,
+//! `FOR UPDATE SKIP LOCKED` dequeues and LISTEN/NOTIFY wakeups).
 
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -17,12 +19,15 @@ macro_rules! lua {
     };
 }
 
+mod facade;
 mod groups;
 pub mod inspect;
+pub mod pg;
 pub mod rate;
 mod scheduler;
 mod worker;
 
+pub use facade::{Cancellations, Rdb};
 pub use groups::AGGREGATION_TIMEOUT;
 
 static ENQUEUE: LazyLock<Script> = LazyLock::new(|| Script::new(include_str!("lua/enqueue.lua")));
@@ -63,6 +68,20 @@ pub enum Error {
     Internal(String),
     #[error("redis error: {0}")]
     Redis(redis::RedisError),
+    #[error("postgres error: {0}")]
+    Postgres(String),
+}
+
+impl From<tokio_postgres::Error> for Error {
+    fn from(e: tokio_postgres::Error) -> Self {
+        Error::Postgres(e.to_string())
+    }
+}
+
+impl From<deadpool_postgres::PoolError> for Error {
+    fn from(e: deadpool_postgres::PoolError) -> Self {
+        Error::Postgres(e.to_string())
+    }
 }
 
 impl From<redis::RedisError> for Error {
@@ -78,7 +97,7 @@ impl From<redis::RedisError> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub struct Rdb {
+pub struct RedisRdb {
     client: redis::Client,
     conn: ConnectionManager,
 }
@@ -92,7 +111,7 @@ fn connection_config() -> redis::aio::ConnectionManagerConfig {
         .set_response_timeout(Some(Duration::from_secs(10)))
 }
 
-impl Rdb {
+impl RedisRdb {
     pub async fn connect(url: &str) -> Result<Self> {
         let client = redis::Client::open(url)?;
         let conn = ConnectionManager::new_with_config(client.clone(), connection_config()).await?;
@@ -186,14 +205,7 @@ impl Rdb {
     }
 }
 
-impl Rdb {
-    /// Pops the oldest pending task from the first queue (in the given
-    /// order) that is neither paused nor empty, moving it to active and
-    /// granting it a lease. Returns the task and its lease expiration.
-    pub async fn dequeue(&self, qnames: &[String]) -> Result<Option<(TaskMessage, DateTime<Utc>)>> {
-        self.dequeue_with_lease(qnames, LEASE_DURATION).await
-    }
-
+impl RedisRdb {
     pub async fn dequeue_with_lease(
         &self,
         qnames: &[String],
