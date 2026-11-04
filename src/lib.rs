@@ -10,6 +10,7 @@ mod py_client;
 mod py_engine;
 mod py_errors;
 mod py_inspector;
+mod py_rate;
 mod py_scheduler;
 pub mod rdb;
 mod runtime;
@@ -43,5 +44,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     py_broker::register(m)?;
     py_inspector::register(m)?;
     py_scheduler::register(m)?;
+    py_rate::register(m)?;
     Ok(())
 }

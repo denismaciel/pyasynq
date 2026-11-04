@@ -103,6 +103,8 @@ class TaskDef(Generic[R]):
         headers = dict(opts.pop("headers", None) or {})
         if self.codec.content_type and CONTENT_TYPE not in headers:
             headers[CONTENT_TYPE] = self.codec.content_type
+        for hook in self.app._enqueue_hooks:
+            hook(self.name, headers)
         if headers:
             opts["headers"] = headers
         return data, opts
@@ -160,6 +162,7 @@ class Asynq:
         self.tasks: dict[str, TaskDef[Any]] = {}
         self._middleware: list[Middleware] = []
         self._error_handlers: list[ErrorHandler] = []
+        self._enqueue_hooks: list[Callable[[str, dict[str, str]], None]] = []
         self._lifespan = lifespan
         self._retry_delay = retry_delay
         self._is_failure = is_failure
@@ -218,6 +221,12 @@ class Asynq:
         if not is_async_callable(fn):
             raise TypeError("middleware must be async")
         self._middleware.append(fn)
+        return fn
+
+    def before_enqueue(self, fn: Callable[[str, dict[str, str]], None]) -> Callable[[str, dict[str, str]], None]:
+        """`fn(task_type, headers)` may add headers to every task this app
+        enqueues (e.g. trace context)."""
+        self._enqueue_hooks.append(fn)
         return fn
 
     def on_error(self, fn: ErrorHandler) -> ErrorHandler:

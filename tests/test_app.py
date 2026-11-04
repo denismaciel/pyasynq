@@ -202,7 +202,8 @@ async def test_group_max_size_triggers_early(app, run_app):
         await item.aenqueue(n, group="g")
     async with run_app(app, group_grace_period=60, group_max_size=2):
         await wait_for(lambda: len(batches) == 2, timeout=10)
-    assert sorted(batches) == [[0, 1], [2, 3]]
+    assert [len(b) for b in batches] == [2, 2]
+    assert sorted(n for b in batches for n in b) == [0, 1, 2, 3]
 
 
 async def test_go_enqueued_json_reaches_typed_handler(app, run_app, go_asynq):

@@ -20,6 +20,7 @@ macro_rules! lua {
 
 mod groups;
 pub mod inspect;
+pub mod rate;
 mod scheduler;
 mod worker;
 

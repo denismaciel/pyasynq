@@ -9,8 +9,17 @@ requires-python = ">=3.10"
 dynamic = ["version"]
 dependencies = []
 
+[project.optional-dependencies]
+metrics = ["prometheus-client>=0.20"]
+otel = ["opentelemetry-api>=1.25"]
+
+[project.scripts]
+pyasynq = "pyasynq.cli:main"
+
 [dependency-groups]
 dev = [
+    "opentelemetry-sdk>=1.25",
+    "prometheus-client>=0.20",
     "pydantic>=2",
     "pytest>=8",
     "pytest-asyncio>=0.24",

@@ -351,7 +351,7 @@ class Worker:
             log.exception("retry_delay raised; using the default delay")
             delay = default_retry_delay(ctx.retry_count, exc, ctx)
         try:
-            is_failure = bool(self._is_failure(exc))
+            is_failure = exc.failure if isinstance(exc, Retry) else bool(self._is_failure(exc))
         except Exception:
             log.exception("is_failure raised; counting as failure")
             is_failure = True

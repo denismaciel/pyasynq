@@ -25,6 +25,7 @@ __all__ = [
     "SkipRetry",
     "RevokeTask",
     "Retry",
+    "RateLimited",
     "TaskCanceled",
     "DeadlineExceeded",
     "LeaseExpired",
@@ -43,13 +44,28 @@ class RevokeTask(AsynqError):
 class Retry(AsynqError):
     """Raise from a handler to retry after a specific delay.
 
-    Counts against `max_retry` like any other failure unless the worker's
-    `is_failure` says otherwise.
+    With `failure=False` the attempt does not count against `max_retry`
+    nor the failed stats (e.g. rate limiting).
     """
 
-    def __init__(self, message: str = "retry requested", *, after: float | timedelta = 0):
+    def __init__(
+        self,
+        message: str = "retry requested",
+        *,
+        after: float | timedelta = 0,
+        failure: bool = True,
+    ):
         super().__init__(message)
         self.after = after.total_seconds() if isinstance(after, timedelta) else float(after)
+        self.failure = failure
+
+
+class RateLimited(Retry):
+    """A rate limit was hit; retried after `after` seconds without counting
+    as a failure."""
+
+    def __init__(self, message: str = "rate limited", *, after: float | timedelta = 1):
+        super().__init__(message, after=after, failure=False)
 
 
 class TaskCanceled(AsynqError):
