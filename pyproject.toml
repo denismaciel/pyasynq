@@ -5,6 +5,7 @@ build-backend = "maturin"
 [project]
 name = "pyasynq"
 description = "asynq-compatible distributed task queue for Python, powered by Rust"
+readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["version"]
 dependencies = []
