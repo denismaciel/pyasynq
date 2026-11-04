@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 
+mod aio;
 pub mod base;
 pub mod client;
 mod py_base;

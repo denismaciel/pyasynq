@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 
 use crate::client::{self, EnqueueOptions, TaskInfo};
 use crate::rdb::{self, Rdb};
-use crate::runtime;
+use crate::{aio, runtime};
 
 create_exception!(
     _core,
@@ -125,8 +125,72 @@ fn positive_secs(secs: i64) -> Option<Duration> {
     (secs > 0).then(|| Duration::from_secs(secs as u64))
 }
 
-/// Enqueues tasks. Safe to share between threads.
-#[pyclass(name = "Client", module = "pyasynq._core", frozen)]
+/// Arguments shared by `enqueue` and `aenqueue`, already validated.
+struct EnqueueRequest {
+    task_type: String,
+    payload: Option<Vec<u8>>,
+    opts: EnqueueOptions,
+}
+
+impl EnqueueRequest {
+    async fn run(self, rdb: &Rdb) -> PyResult<PyTaskInfo> {
+        client::enqueue(rdb, &self.task_type, self.payload.as_deref(), &self.opts)
+            .await
+            .map(PyTaskInfo)
+            .map_err(client_err)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn enqueue_request(
+    task_type: String,
+    payload: Option<Vec<u8>>,
+    queue: Option<String>,
+    max_retry: Option<i32>,
+    task_id: Option<String>,
+    timeout: Option<Duration>,
+    deadline: Option<DateTime<Utc>>,
+    unique: Option<Duration>,
+    process_at: Option<DateTime<Utc>>,
+    process_in: Option<Duration>,
+    retention: Option<Duration>,
+    group: Option<String>,
+    headers: Option<HashMap<String, String>>,
+) -> PyResult<EnqueueRequest> {
+    let process_at = match (process_at, process_in) {
+        (Some(_), Some(_)) => {
+            return Err(PyValueError::new_err(
+                "pass either process_at or process_in, not both",
+            ))
+        }
+        (Some(t), None) => Some(t),
+        (None, Some(d)) => Some(
+            Utc::now()
+                + chrono::Duration::from_std(d)
+                    .map_err(|_| PyValueError::new_err("process_in is too large"))?,
+        ),
+        (None, None) => None,
+    };
+    Ok(EnqueueRequest {
+        task_type,
+        payload,
+        opts: EnqueueOptions {
+            queue,
+            max_retry,
+            task_id,
+            timeout,
+            deadline,
+            unique_ttl: unique,
+            process_at,
+            retention,
+            group,
+            headers: headers.unwrap_or_default(),
+        },
+    })
+}
+
+/// Enqueues tasks. Safe to share between threads and event loops.
+#[pyclass(name = "Client", module = "pyasynq._core", frozen, subclass)]
 pub struct PyClient {
     rdb: Arc<Rdb>,
 }
@@ -142,6 +206,11 @@ impl PyClient {
 
     fn ping(&self, py: Python<'_>) -> PyResult<()> {
         runtime::block_on(py, self.rdb.ping()).map_err(rdb_err)
+    }
+
+    fn _aping<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let rdb = self.rdb.clone();
+        aio::future_into_py(py, async move { rdb.ping().await.map_err(rdb_err) })
     }
 
     /// Enqueues a task. `process_at`/`process_in` in the future schedule it
@@ -169,38 +238,44 @@ impl PyClient {
         group: Option<String>,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<PyTaskInfo> {
-        let process_at = match (process_at, process_in) {
-            (Some(_), Some(_)) => {
-                return Err(PyValueError::new_err(
-                    "pass either process_at or process_in, not both",
-                ))
-            }
-            (Some(t), None) => Some(t),
-            (None, Some(d)) => Some(
-                Utc::now()
-                    + chrono::Duration::from_std(d)
-                        .map_err(|_| PyValueError::new_err("process_in is too large"))?,
-            ),
-            (None, None) => None,
-        };
-        let opts = EnqueueOptions {
-            queue,
-            max_retry,
-            task_id,
-            timeout,
-            deadline,
-            unique_ttl: unique,
-            process_at,
-            retention,
-            group,
-            headers: headers.unwrap_or_default(),
-        };
-        let info = runtime::block_on(
-            py,
-            client::enqueue(&self.rdb, &task_type, payload.as_deref(), &opts),
-        )
-        .map_err(client_err)?;
-        Ok(PyTaskInfo(info))
+        let req = enqueue_request(
+            task_type, payload, queue, max_retry, task_id, timeout, deadline, unique, process_at,
+            process_in, retention, group, headers,
+        )?;
+        runtime::block_on(py, req.run(&self.rdb))
+    }
+
+    /// Returns an `asyncio.Future`; `pyasynq.Client.aenqueue` wraps it in a
+    /// coroutine.
+    #[pyo3(signature = (
+        task_type, payload = None, *, queue = None, max_retry = None, task_id = None,
+        timeout = None, deadline = None, unique = None, process_at = None,
+        process_in = None, retention = None, group = None, headers = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn _aenqueue<'py>(
+        &self,
+        py: Python<'py>,
+        task_type: String,
+        payload: Option<Vec<u8>>,
+        queue: Option<String>,
+        max_retry: Option<i32>,
+        task_id: Option<String>,
+        timeout: Option<Duration>,
+        deadline: Option<DateTime<Utc>>,
+        unique: Option<Duration>,
+        process_at: Option<DateTime<Utc>>,
+        process_in: Option<Duration>,
+        retention: Option<Duration>,
+        group: Option<String>,
+        headers: Option<HashMap<String, String>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let req = enqueue_request(
+            task_type, payload, queue, max_retry, task_id, timeout, deadline, unique, process_at,
+            process_in, retention, group, headers,
+        )?;
+        let rdb = self.rdb.clone();
+        aio::future_into_py(py, async move { req.run(&rdb).await })
     }
 }
 

@@ -14,6 +14,14 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .expect("failed to start tokio runtime")
 });
 
+pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    RUNTIME.spawn(fut)
+}
+
 /// Runs `fut` to completion on the runtime while the calling thread has
 /// released the GIL, so other Python threads keep running meanwhile.
 pub fn block_on<F>(py: Python<'_>, fut: F) -> F::Output
