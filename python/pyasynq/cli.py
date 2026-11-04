@@ -203,7 +203,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     _core.reset_log_cache()
     try:
-        return args.func(args, argv)
+        return int(args.func(args, argv))
     except _core.AsynqError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

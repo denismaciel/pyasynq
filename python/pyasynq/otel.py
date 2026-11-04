@@ -29,7 +29,7 @@ def instrument(app: Asynq, tracer_provider: Any = None) -> None:
     @app.middleware
     async def trace_task(ctx: TaskContext, call_next: Any) -> Any:
         parent = propagate.extract(ctx.headers)
-        attributes = {
+        attributes: dict[str, str | int] = {
             "messaging.system": "asynq",
             "messaging.destination.name": ctx.queue,
             "messaging.message.id": ctx.id,

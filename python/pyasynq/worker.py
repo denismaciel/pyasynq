@@ -18,7 +18,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Union
+from typing import Any, Awaitable, Callable, Coroutine, Union, overload
 
 from pyasynq import _core
 from pyasynq.context import TaskContext, _current
@@ -52,6 +52,10 @@ _RUST_ERRORS: dict[str, type[BaseException]] = {
 }
 
 
+@overload
+def seconds(v: Seconds) -> float: ...
+@overload
+def seconds(v: None) -> None: ...
 def seconds(v: Seconds | None) -> float | None:
     if v is None:
         return None
@@ -130,7 +134,7 @@ class Worker:
         self._group_aggregator = group_aggregator
         self._install_signals = install_signal_handlers
         self._redis_url = redis_url
-        opts = {k: seconds(v) if isinstance(v, timedelta) else v for k, v in engine_options.items()}
+        opts: dict[str, Any] = {k: seconds(v) if isinstance(v, timedelta) else v for k, v in engine_options.items()}
         self._engine = _core.Engine(
             redis_url,
             concurrency=concurrency,
@@ -215,11 +219,11 @@ class Worker:
             return
         self.loop.call_soon_threadsafe(self._shutdown_requested.set)
 
-    def _add_signal_handlers(self) -> list[int]:
+    def _add_signal_handlers(self) -> list[signal.Signals]:
         if not self._install_signals or threading.current_thread() is not threading.main_thread():
             return []
         assert self.loop is not None
-        installed = []
+        installed: list[signal.Signals] = []
         handlers = {signal.SIGTERM: self.shutdown, signal.SIGINT: self.shutdown}
         if hasattr(signal, "SIGTSTP"):
             handlers[signal.SIGTSTP] = self._on_tstp
@@ -282,9 +286,9 @@ class Worker:
                 if job.task is not None:
                     job.task.cancel()
 
-    def _spawn(self, coro: Awaitable[Any]) -> None:
+    def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:
         assert self.loop is not None
-        t = self.loop.create_task(coro)  # type: ignore[arg-type]
+        t = self.loop.create_task(coro)
         self._background.add(t)
         t.add_done_callback(self._background.discard)
 

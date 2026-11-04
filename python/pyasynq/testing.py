@@ -10,11 +10,14 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 from pyasynq import _core
 from pyasynq.app import Asynq, TaskDef
 from pyasynq.context import TaskContext, _current
+
+_P = TypeVar("_P")
+_R = TypeVar("_R")
 
 
 class _InlineRunner:
@@ -55,14 +58,15 @@ def make_context(
     return TaskContext(msg, datetime.now(timezone.utc) + timeout, None, runner)  # type: ignore[arg-type]
 
 
-async def run_task(task: TaskDef[Any], payload: Any = None, **context: Any) -> Any:
+async def run_task(task: TaskDef[_P, _R], payload: _P | None = None, **context: Any) -> _R:
     """Runs `task` with `payload` through its app's middleware and returns
     the decoded result. Exceptions propagate."""
     data, opts = task.message(payload)
     ctx = make_context(task.name, data, headers=opts.get("headers"), **context)
     _current.set(ctx)
     raw = await task.app.handle(ctx)
-    return task.decode_result(raw)
+    result: _R = task.decode_result(raw)
+    return result
 
 
 async def drain(app: Asynq, *, queues: list[str] | None = None, timeout: float = 30, **worker_options: Any) -> None:

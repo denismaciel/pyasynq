@@ -17,7 +17,8 @@ CONTENT_TYPE = "content-type"
 
 
 class Codec(Protocol):
-    content_type: str | None
+    @property
+    def content_type(self) -> str | None: ...
 
     def encode(self, value: Any) -> bytes: ...
 
@@ -25,7 +26,7 @@ class Codec(Protocol):
 
 
 class RawCodec:
-    content_type = None
+    content_type: str | None = None
 
     def encode(self, value: Any) -> bytes:
         if value is None:
@@ -55,7 +56,7 @@ def dumps(value: Any) -> bytes:
 
 
 class JsonCodec:
-    content_type = "application/json"
+    content_type: str | None = "application/json"
 
     def encode(self, value: Any) -> bytes:
         return dumps(value)
@@ -65,13 +66,13 @@ class JsonCodec:
 
 
 class PydanticCodec(JsonCodec):
-    def __init__(self, model: type):
+    def __init__(self, model: Any):
         self.model = model
 
     def encode(self, value: Any) -> bytes:
         if not isinstance(value, self.model):
             value = self.model.model_validate(value)
-        return value.model_dump_json().encode()
+        return bytes(value.model_dump_json().encode())
 
     def decode(self, data: bytes) -> Any:
         return self.model.model_validate_json(data)

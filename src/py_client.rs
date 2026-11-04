@@ -5,6 +5,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 
 use crate::client::{self, EnqueueOptions, TaskInfo};
 use crate::py_base::Secs;
@@ -98,6 +99,16 @@ impl PyTaskInfo {
         Some(self.0.msg.last_failed_at)
             .filter(|&t| t > 0)
             .and_then(|t| DateTime::from_timestamp(t, 0))
+    }
+
+    /// `TaskInfo[R]` in annotations names the task's decoded result type.
+    #[classmethod]
+    fn __class_getitem__<'py>(
+        cls: &Bound<'py, PyType>,
+        item: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let alias = cls.py().import("types")?.getattr("GenericAlias")?;
+        alias.call1((cls, item))
     }
 
     fn __repr__(&self) -> String {

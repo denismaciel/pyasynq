@@ -1,0 +1,7 @@
+# Type-only names declared in the stub.
+pyasynq._core.TaskState
+pyasynq._core.Duration
+pyasynq._core.EngineEvent
+# Provided by Generic in the stub, by __class_getitem__ at runtime.
+pyasynq._core.TaskInfo.__class_getitem__
+pyasynq._core.__all__

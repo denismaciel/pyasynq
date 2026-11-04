@@ -42,6 +42,20 @@ pyasynq worker tasks:app --processes 4     # one worker server per process
 pyasynq scheduler tasks:app                # enqueues @app.periodic tasks
 ```
 
+## Typing
+
+The package ships type information, including stubs for the Rust extension. Each task's payload and result types come from the handler's signature, so type checkers catch mistakes at the call site:
+
+```python
+send_email                                   # TaskDef[Email, dict]
+info = send_email.enqueue(Email("a@b.c", "hi"))   # TaskInfo[dict]
+await send_email.wait_result(info)           # dict
+send_email.enqueue("a@b.c")                  # error: expected Email
+send_email.enqueue(email, proces_in=60)      # error: unknown option
+```
+
+The payload is the handler's first positional parameter. A parameter annotated `ctx: TaskContext` receives the context. A task without a payload is `TaskDef[None, R]` and is enqueued with no arguments.
+
 ## Features
 
 **Task options:** `queue`, `max_retry`, `timeout`, `deadline`, `unique` (dedupe window), `retention` (keep results), `group` (batching), `process_in` / `process_at`, custom `headers`.

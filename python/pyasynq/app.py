@@ -17,8 +17,20 @@ import functools
 import inspect
 import typing
 from datetime import timedelta
-from typing import Any, AsyncIterator, Awaitable, Callable, Generic, TypeVar, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Generic,
+    Protocol,
+    TypeVar,
+    cast,
+    overload,
+)
 
+from pyasynq._core import TaskInfo
 from pyasynq.client import Client
 from pyasynq.context import TaskContext
 from pyasynq.errors import AsynqError, HandlerNotFound, SkipRetry
@@ -35,7 +47,17 @@ from pyasynq.worker import (
     maybe_await,
 )
 
-R = TypeVar("R")
+if TYPE_CHECKING:
+    from typing_extensions import Unpack
+
+    from pyasynq.options import EnqueueOptions, TaskOptions
+    from pyasynq.scheduler import Scheduler
+
+PayloadT = TypeVar("PayloadT", contravariant=True)
+ResultT = TypeVar("ResultT")
+_P = TypeVar("_P")
+_R = TypeVar("_R")
+_TD = TypeVar("_TD", bound="TaskDef[Any, Any]")
 Middleware = Callable[[TaskContext, Callable[[TaskContext], Awaitable[Any]]], Awaitable[Any]]
 Lifespan = Callable[["Asynq"], contextlib.AbstractAsyncContextManager[Any]]
 
@@ -45,13 +67,17 @@ _ENQUEUE_OPTIONS = ("queue", "max_retry", "timeout", "deadline", "unique", "rete
 class TaskFailed(AsynqError):
     """`wait_result`: the task was archived after exhausting its retries."""
 
-    def __init__(self, info: Any):
+    def __init__(self, info: TaskInfo):
         super().__init__(info.last_err or "task failed")
         self.info = info
 
 
-class TaskDef(Generic[R]):
-    """A registered task: callable directly, enqueueable by name."""
+class TaskDef(Generic[PayloadT, ResultT]):
+    """A registered task: callable directly, enqueueable by name.
+
+    `PayloadT` is what `enqueue` accepts (`None` for tasks without a
+    payload) and `ResultT` what `wait_result` returns.
+    """
 
     def __init__(
         self,
@@ -109,21 +135,36 @@ class TaskDef(Generic[R]):
             opts["headers"] = headers
         return data, opts
 
-    def enqueue(self, payload: Any = None, /, **options: Any) -> Any:
+    @overload
+    def enqueue(self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
+    @overload
+    def enqueue(self, payload: PayloadT, /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
+    def enqueue(self, payload: Any = None, /, **options: Any) -> TaskInfo[ResultT]:
         data, opts = self.message(payload, **options)
         return self.app.client.enqueue(self.name, data, **opts)
 
-    async def aenqueue(self, payload: Any = None, /, **options: Any) -> Any:
+    @overload
+    async def aenqueue(
+        self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]
+    ) -> TaskInfo[ResultT]: ...
+    @overload
+    async def aenqueue(self, payload: PayloadT, /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
+    async def aenqueue(self, payload: Any = None, /, **options: Any) -> TaskInfo[ResultT]:
         data, opts = self.message(payload, **options)
         return await self.app.client.aenqueue(self.name, data, **opts)
 
+    @overload
+    def task(self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]) -> Task: ...
+    @overload
+    def task(self, payload: PayloadT, /, **options: Unpack[EnqueueOptions]) -> Task: ...
     def task(self, payload: Any = None, /, **options: Any) -> Task:
         """A `Task` value, e.g. for a group aggregator to return."""
         data, opts = self.message(payload, **options)
         return Task(self.name, data, opts.pop("headers", {}), opts)
 
-    async def wait_result(self, info: Any, *, timeout: float | None = None) -> R:
-        return await self.app.wait_result(info, timeout=timeout)
+    async def wait_result(self, info: TaskInfo[ResultT], *, timeout: float | None = None) -> ResultT:
+        result: ResultT = await self.app.wait_result(info, timeout=timeout)
+        return result
 
     def decode_result(self, data: bytes | None) -> Any:
         if data is None:
@@ -147,6 +188,44 @@ class TaskDef(Generic[R]):
         return await ctx._worker.run_in_thread(functools.partial(self.fn, **kwargs))
 
 
+def _wrap(
+    mw: Middleware, call_next: Callable[[TaskContext], Awaitable[Any]]
+) -> Callable[[TaskContext], Awaitable[Any]]:
+    async def call(ctx: TaskContext) -> Any:
+        return await mw(ctx, call_next)
+
+    return call
+
+
+class TaskDecorator(Protocol):
+    """What `@app.task("name", ...)` returns: turns a handler into a TaskDef.
+
+    Handlers take an optional payload and an optional `ctx: TaskContext`;
+    the payload's annotation becomes the TaskDef's payload type.
+    """
+
+    @overload
+    def __call__(self, fn: Callable[[], Awaitable[_R]], /) -> TaskDef[None, _R]: ...
+    @overload
+    def __call__(self, fn: Callable[[TaskContext], Awaitable[_R]], /) -> TaskDef[None, _R]: ...  # type: ignore[overload-overlap]
+    @overload
+    def __call__(self, fn: Callable[[_P, TaskContext], Awaitable[_R]], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def __call__(self, fn: Callable[[_P], Awaitable[_R]], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def __call__(self, fn: Callable[[], _R], /) -> TaskDef[None, _R]: ...
+    @overload
+    def __call__(self, fn: Callable[[TaskContext], _R], /) -> TaskDef[None, _R]: ...
+    @overload
+    def __call__(self, fn: Callable[[_P, TaskContext], _R], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def __call__(self, fn: Callable[[_P], _R], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def __call__(self, fn: Callable[..., Awaitable[_R]], /) -> TaskDef[Any, _R]: ...  # type: ignore[overload-cannot-match]
+    @overload
+    def __call__(self, fn: Callable[..., _R], /) -> TaskDef[Any, _R]: ...  # type: ignore[overload-cannot-match]
+
+
 class Asynq:
     """Holds task definitions plus the shared worker policies."""
 
@@ -159,7 +238,7 @@ class Asynq:
         is_failure: Callable[[BaseException], bool] | None = None,
     ):
         self.redis_url = redis_url
-        self.tasks: dict[str, TaskDef[Any]] = {}
+        self.tasks: dict[str, TaskDef[Any, Any]] = {}
         self._middleware: list[Middleware] = []
         self._error_handlers: list[ErrorHandler] = []
         self._enqueue_hooks: list[Callable[[str, dict[str, str]], None]] = []
@@ -186,28 +265,57 @@ class Asynq:
     # -- registration --------------------------------------------------------
 
     @overload
-    def task(self, fn: Callable[..., Awaitable[R]], /) -> TaskDef[R]: ...
+    def task(self, fn: Callable[[], Awaitable[_R]], /) -> TaskDef[None, _R]: ...
     @overload
-    def task(self, fn: Callable[..., R], /) -> TaskDef[R]: ...
+    def task(self, fn: Callable[[TaskContext], Awaitable[_R]], /) -> TaskDef[None, _R]: ...  # type: ignore[overload-overlap]
     @overload
-    def task(self, name: str | None = None, /, **options: Any) -> Callable[[Callable[..., Any]], TaskDef[Any]]: ...
+    def task(self, fn: Callable[[_P, TaskContext], Awaitable[_R]], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def task(self, fn: Callable[[_P], Awaitable[_R]], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def task(self, fn: Callable[[], _R], /) -> TaskDef[None, _R]: ...
+    @overload
+    def task(self, fn: Callable[[TaskContext], _R], /) -> TaskDef[None, _R]: ...
+    @overload
+    def task(self, fn: Callable[[_P, TaskContext], _R], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def task(self, fn: Callable[[_P], _R], /) -> TaskDef[_P, _R]: ...
+    @overload
+    def task(self, fn: Callable[..., Awaitable[_R]], /) -> TaskDef[Any, _R]: ...  # type: ignore[overload-cannot-match]
+    @overload
+    def task(self, fn: Callable[..., _R], /) -> TaskDef[Any, _R]: ...  # type: ignore[overload-cannot-match]
+    @overload
+    def task(
+        self,
+        name: str | None = None,
+        /,
+        *,
+        retry_delay: RetryDelayFunc | None = None,
+        codec: Codec | None = None,
+        **options: Unpack[TaskOptions],
+    ) -> TaskDecorator: ...
 
-    def task(self, name_or_fn: Any = None, /, **options: Any) -> Any:
+    def task(
+        self,
+        name_or_fn: Any = None,
+        /,
+        *,
+        retry_delay: RetryDelayFunc | None = None,
+        codec: Codec | None = None,
+        **options: Any,
+    ) -> Any:
         """Registers a handler. `name` defaults to `module.qualname`; enqueue
         defaults (queue, max_retry, timeout, deadline, unique, retention,
-        group) can be overridden per call. Also takes `retry_delay` and
-        `codec`."""
-        retry_delay = options.pop("retry_delay", None)
-        codec = options.pop("codec", None)
+        group, headers) can be overridden per call."""
         unknown = set(options) - set(_ENQUEUE_OPTIONS) - {"headers"}
         if unknown:
             raise TypeError(f"unknown task options: {sorted(unknown)}")
 
-        def register(fn: Callable[..., Any], name: str | None) -> TaskDef[Any]:
+        def register(fn: Callable[..., Any], name: str | None) -> TaskDef[Any, Any]:
             name = name or f"{fn.__module__}.{fn.__qualname__}"
             if name in self.tasks:
                 raise ValueError(f"task {name!r} is already registered")
-            td: TaskDef[Any] = TaskDef(self, fn, name, options, retry_delay, codec)
+            td: TaskDef[Any, Any] = TaskDef(self, fn, name, dict(options), retry_delay, codec)
             self.tasks[name] = td
             return td
 
@@ -244,15 +352,17 @@ class Asynq:
         self._group_aggregator = fn
         return fn
 
-    def periodic(self, cronspec: str, payload: Any = None, **options: Any) -> Callable[[TaskDef[R]], TaskDef[R]]:
+    def periodic(
+        self, cronspec: str, payload: Any = None, **options: Unpack[TaskOptions]
+    ) -> Callable[[_TD], _TD]:
         """Registers `cronspec` (cron or "@every 30s") for the scheduler.
         Apply on top of `@app.task`."""
         from pyasynq.scheduler import PeriodicEntry
 
-        def register(td: TaskDef[R]) -> TaskDef[R]:
+        def register(td: _TD) -> _TD:
             if not isinstance(td, TaskDef):
                 raise TypeError("@app.periodic must be applied above @app.task")
-            self.periodic_entries.append(PeriodicEntry(cronspec, td, payload, options))
+            self.periodic_entries.append(PeriodicEntry(cronspec, td, payload, dict(options)))
             return td
 
         return register
@@ -265,7 +375,7 @@ class Asynq:
             raise HandlerNotFound(f"handler not found for task {ctx.type!r}")
         call: Callable[[TaskContext], Awaitable[Any]] = td._run
         for mw in reversed(self._middleware):
-            call = functools.partial(mw, call_next=call)
+            call = _wrap(mw, call)
         return encode_result(await call(ctx))
 
     def _retry_delay_for(self, retried: int, exc: BaseException, ctx: TaskContext) -> Any:
@@ -304,7 +414,7 @@ class Asynq:
     def run_worker(self, **options: Any) -> None:
         asyncio.run(self.arun_worker(**options))
 
-    def scheduler(self, **options: Any) -> Any:
+    def scheduler(self, **options: Any) -> Scheduler:
         from pyasynq.scheduler import Scheduler
 
         options.setdefault("redis_url", self.redis_url)
@@ -323,8 +433,12 @@ class Asynq:
     # -- results ---------------------------------------------------------------
 
     async def wait_result(
-        self, info: Any, *, timeout: float | timedelta | None = None, poll_interval: float = 0.1
-    ) -> Any:
+        self,
+        info: TaskInfo[_R],
+        *,
+        timeout: float | timedelta | None = None,
+        poll_interval: float = 0.1,
+    ) -> _R:
         """Waits until the task completes and returns its decoded result.
 
         Needs `retention` on the task: without it the task is deleted on
@@ -339,7 +453,7 @@ class Asynq:
         while True:
             current = await self.inspector.aget_task_info(info.queue, info.id)
             if current.state == "completed":
-                return td.decode_result(current.result) if td else current.result
+                return cast(_R, td.decode_result(current.result) if td else current.result)
             if current.state == "archived":
                 raise TaskFailed(current)
             if end is not None and loop.time() >= end:
