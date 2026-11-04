@@ -3,9 +3,8 @@
 import asyncio
 from datetime import timedelta
 
-import pytest
-
 import pyasynq
+import pytest
 from pyasynq.inspector import Inspector
 
 

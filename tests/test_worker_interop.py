@@ -34,24 +34,21 @@ CRASHY_WORKER = textwrap.dedent(
 async def test_crashed_worker_task_is_recovered(client, rdb, redis_addr, make_worker):
     url = f"redis://{redis_addr}/0"
     info = client.enqueue("t", b"", max_retry=3)
-    proc = subprocess.Popen(
-        [sys.executable, "-c", CRASHY_WORKER, url], stdout=subprocess.PIPE, text=True
-    )
+    proc = await asyncio.create_subprocess_exec(sys.executable, "-c", CRASHY_WORKER, url, stdout=subprocess.PIPE)
+    assert proc.stdout is not None
     try:
-        assert proc.stdout.readline().strip() == "started"
+        assert (await proc.stdout.readline()).strip() == b"started"
         assert rdb.lrange("asynq:{default}:active", 0, -1) == [info.id.encode()]
         os.kill(proc.pid, signal.SIGKILL)
     finally:
-        proc.wait()
+        await proc.wait()
 
     # Another worker's recoverer finds the expired lease and schedules a retry.
     async def never(ctx):
         raise AssertionError("not reached: the retry is in the future")
 
     async with make_worker(never, recoverer_interval=0.2, recoverer_skew=0):
-        await wait_for(
-            lambda: rdb.hget(f"asynq:{{default}}:t:{info.id}", "state") == b"retry", timeout=8
-        )
+        await wait_for(lambda: rdb.hget(f"asynq:{{default}}:t:{info.id}", "state") == b"retry", timeout=8)
     msg = pyasynq.TaskMessage.decode(rdb.hget(f"asynq:{{default}}:t:{info.id}", "msg"))
     assert msg.error_msg == "asynq: task lease expired"
     assert msg.retried == 1
@@ -61,14 +58,13 @@ async def test_crashed_worker_task_is_recovered(client, rdb, redis_addr, make_wo
 async def test_sigterm_shuts_down_gracefully(client, rdb, redis_addr):
     script = CRASHY_WORKER.replace("install_signal_handlers=False,", "shutdown_timeout=0.3,")
     info = client.enqueue("t")
-    proc = subprocess.Popen(
-        [sys.executable, "-c", script, f"redis://{redis_addr}/0"],
-        stdout=subprocess.PIPE,
-        text=True,
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-c", script, f"redis://{redis_addr}/0", stdout=subprocess.PIPE
     )
-    assert proc.stdout.readline().strip() == "started"
+    assert proc.stdout is not None
+    assert (await proc.stdout.readline()).strip() == b"started"
     proc.send_signal(signal.SIGTERM)
-    assert proc.wait(timeout=10) == 0
+    assert await asyncio.wait_for(proc.wait(), 10) == 0
     assert rdb.hget(f"asynq:{{default}}:t:{info.id}", "state") == b"pending"
     assert rdb.zcard("asynq:servers") == 0
 
@@ -81,9 +77,7 @@ async def test_go_inspector_sees_python_worker(client, go_asynq, make_worker):
         await asyncio.sleep(30)
 
     info = client.enqueue("t", b"payload", queue="critical")
-    async with make_worker(
-        handler, queues={"critical": 6, "default": 1}, concurrency=3, shutdown_timeout=0.2
-    ) as w:
+    async with make_worker(handler, queues={"critical": 6, "default": 1}, concurrency=3, shutdown_timeout=0.2) as w:
         await asyncio.wait_for(started.wait(), 3)
         await asyncio.sleep(0.3)  # one heartbeat with the worker in it
         servers = await asyncio.to_thread(go_asynq, "servers")
@@ -113,9 +107,7 @@ async def test_go_cancel_processing_reaches_python(client, rdb, go_asynq, make_w
     assert got["last_err"] == "context canceled"
 
 
-async def test_python_processes_go_tasks_and_go_processes_python_tasks(
-    client, rdb, go_asynq, make_worker
-):
+async def test_python_processes_go_tasks_and_go_processes_python_tasks(client, rdb, go_asynq, make_worker):
     seen = []
 
     async def handler(ctx):

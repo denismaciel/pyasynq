@@ -36,7 +36,6 @@
               # python
               python
               uv
-              ruff
 
               # go asynq, for cross-language tests
               go

@@ -6,9 +6,8 @@ from collections import Counter
 from dataclasses import dataclass
 
 import psycopg
-import pytest
-
 import pyasynq
+import pytest
 from conftest import wait_for
 from pyasynq import Asynq
 from pyasynq.inspector import Inspector
@@ -76,7 +75,7 @@ def test_enqueue_statement_options(pg_url):
         conn.execute(grouped.sql, grouped.params)
     assert Inspector(pg_url).groups("default") == {"g": 1}
     with pytest.raises(ValueError):
-        enqueue_statement("t", paramstyle="qmark")  # type: ignore[arg-type]
+        enqueue_statement("t", paramstyle="qmark")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError):
         enqueue_statement("t", unique=60)  # type: ignore[call-arg]
 

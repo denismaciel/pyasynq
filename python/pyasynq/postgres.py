@@ -20,7 +20,7 @@ from pyasynq import _core
 from pyasynq._core import TaskInfo
 
 if TYPE_CHECKING:
-    from typing_extensions import Unpack
+    from typing_extensions import LiteralString, Unpack
 
     from pyasynq.options import Duration
 
@@ -51,7 +51,7 @@ class StatementOptions(TypedDict, total=False):
 class EnqueueStatement(Generic[R]):
     """An ``INSERT`` to run on your own connection: ``cursor.execute(stmt.sql, stmt.params)``."""
 
-    sql: str
+    sql: LiteralString
     params: tuple[Any, ...]
     info: TaskInfo[R]
 
@@ -72,7 +72,7 @@ def enqueue_statement(
     return EnqueueStatement(sql, params, info)
 
 
-def schema_sql() -> str:
+def schema_sql() -> LiteralString:
     """The schema pyasynq creates on connect, for applying it with your own
     migration tool instead."""
     return _core.pg_schema()

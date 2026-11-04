@@ -1,10 +1,10 @@
 """Command line: run workers/schedulers for an app, inspect queues.
 
-    pyasynq worker myproj.tasks:app -q critical=6 -q default=3 -c 20
-    pyasynq worker myproj.tasks:app --processes 4
-    pyasynq scheduler myproj.tasks:app
-    pyasynq inspect queues
-    pyasynq inspect tasks default retry
+pyasynq worker myproj.tasks:app -q critical=6 -q default=3 -c 20
+pyasynq worker myproj.tasks:app --processes 4
+pyasynq scheduler myproj.tasks:app
+pyasynq inspect queues
+pyasynq inspect tasks default retry
 """
 
 from __future__ import annotations
@@ -15,8 +15,9 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, Sequence
+from typing import Any
 
 from pyasynq import _core
 from pyasynq.worker import DEFAULT_REDIS_URL
@@ -78,11 +79,7 @@ def _jsonable(v: Any) -> Any:
     if isinstance(v, dict):
         return {k: _jsonable(x) for k, x in v.items()}
     if hasattr(v, "__class__") and v.__class__.__module__ == "pyasynq._core":
-        return {
-            k: _jsonable(getattr(v, k))
-            for k in dir(v)
-            if not k.startswith("_") and not callable(getattr(v, k))
-        }
+        return {k: _jsonable(getattr(v, k)) for k in dir(v) if not k.startswith("_") and not callable(getattr(v, k))}
     return v
 
 
@@ -181,8 +178,21 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument(
         "what",
         choices=[
-            "queues", "queue", "history", "tasks", "task", "servers", "schedulers", "groups",
-            "pause", "unpause", "run", "archive", "delete", "cancel", "delete-queue",
+            "queues",
+            "queue",
+            "history",
+            "tasks",
+            "task",
+            "servers",
+            "schedulers",
+            "groups",
+            "pause",
+            "unpause",
+            "run",
+            "archive",
+            "delete",
+            "cancel",
+            "delete-queue",
         ],
     )
     i.add_argument("args", nargs="*")

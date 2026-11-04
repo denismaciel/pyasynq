@@ -10,7 +10,8 @@ Requires `prometheus_client`.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from pyasynq.inspector import Inspector
 

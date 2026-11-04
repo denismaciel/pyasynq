@@ -1,13 +1,14 @@
 import asyncio
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Callable, Generic, Literal, final
+from typing import Any, Generic, Literal, TypeAlias, final
 
-from typing_extensions import Self, TypeVar, disjoint_base
+from typing_extensions import LiteralString, Self, TypeVar, disjoint_base
 
 _R_co = TypeVar("_R_co", covariant=True, default=Any)
 
-TaskState = Literal["pending", "active", "scheduled", "retry", "archived", "completed", "aggregating"]
-Duration = float | timedelta
+TaskState: TypeAlias = Literal["pending", "active", "scheduled", "retry", "archived", "completed", "aggregating"]
+Duration: TypeAlias = float | timedelta
 
 ALL_QUEUES: str
 ASYNQ_VERSION: str
@@ -34,11 +35,11 @@ def pg_enqueue_statement(
     headers: dict[str, str] | None = None,
     paramstyle: str = "format",
 ) -> tuple[
-    str,
+    LiteralString,
     tuple[str, str, str, bytes, datetime | None, datetime | None, str | None, datetime | None],
     TaskInfo,
 ]: ...
-def pg_schema() -> str: ...
+def pg_schema() -> LiteralString: ...
 
 class AsynqError(Exception): ...
 class DuplicateTaskError(AsynqError): ...
@@ -180,7 +181,7 @@ class Broker:
     def done(self, msg: TaskMessage) -> None: ...
     def mark_as_complete(self, msg: TaskMessage) -> None: ...
 
-EngineEvent = (
+EngineEvent: TypeAlias = (
     tuple[Literal["job"], int, TaskMessage, datetime]
     | tuple[Literal["cancel"], int, str, str]
     | tuple[Literal["aggregate"], str, str, str, list[TaskMessage]]

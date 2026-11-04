@@ -4,7 +4,6 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from pyasynq import TaskNotFoundError
 from pyasynq._core import Broker, queue_key_prefix, task_key
 

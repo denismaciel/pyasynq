@@ -33,7 +33,7 @@ class TaskContext:
     with `asyncio.CancelledError` at their next `await`.
     """
 
-    __slots__ = ("_msg", "deadline", "_engine", "_cancel", "_reason", "_worker")
+    __slots__ = ("_cancel", "_engine", "_msg", "_reason", "_worker", "deadline")
 
     def __init__(
         self,

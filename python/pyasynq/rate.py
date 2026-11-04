@@ -14,7 +14,7 @@ workers can share a limit.
 from __future__ import annotations
 
 import contextlib
-from typing import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Generator
 
 from pyasynq import _core
 from pyasynq.context import TaskContext
@@ -30,7 +30,7 @@ class Semaphore(_core.Semaphore):
         return await self._arelease(ctx.id)
 
     @contextlib.asynccontextmanager
-    async def hold(self, ctx: TaskContext, *, retry_after: float = 1) -> AsyncIterator[None]:
+    async def hold(self, ctx: TaskContext, *, retry_after: float = 1) -> AsyncGenerator[None, None]:
         """Runs the block with a token, or raises RateLimited (the task is
         retried later without counting as a failure)."""
         if not await self.acquire(ctx):
@@ -41,7 +41,7 @@ class Semaphore(_core.Semaphore):
             await self.release(ctx)
 
     @contextlib.contextmanager
-    def hold_sync(self, ctx: TaskContext, *, retry_after: float = 1) -> Iterator[None]:
+    def hold_sync(self, ctx: TaskContext, *, retry_after: float = 1) -> Generator[None, None, None]:
         """`hold` for sync handlers."""
         if not self.acquire_sync(ctx.id, ctx.deadline):
             raise RateLimited(f"semaphore {self.scope!r} is full", after=retry_after)

@@ -4,9 +4,8 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 import pyasynq
+import pytest
 from conftest import wait_for
 from pyasynq import Asynq, TaskContext
 from pyasynq.inspector import Inspector
@@ -224,9 +223,7 @@ async def test_cancel_processing(app, run_app, inspector):
     info = await slow.aenqueue()
     async with run_app(app):
         await asyncio.wait_for(started.wait(), 5)
-        [server] = await wait_for(
-            lambda: [s for s in inspector.servers() if s.active_workers], timeout=5
-        )
+        [server] = await wait_for(lambda: [s for s in inspector.servers() if s.active_workers], timeout=5)
         assert [w.task_id for w in server.active_workers] == [info.id]
         assert [t.id for t in inspector.list_active_tasks("default")] == [info.id]
         await asyncio.sleep(0.3)  # the subscriber must be listening

@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from pyasynq import _core
 from pyasynq.app import Asynq, TaskDef
 from pyasynq.context import TaskContext, _current
+
+if TYPE_CHECKING:
+    from pyasynq.worker import Worker
 
 _P = TypeVar("_P")
 _R = TypeVar("_R")
@@ -55,7 +59,7 @@ def make_context(
         runner = _InlineRunner(asyncio.get_running_loop())
     except RuntimeError:
         runner = None
-    return TaskContext(msg, datetime.now(timezone.utc) + timeout, None, runner)  # type: ignore[arg-type]
+    return TaskContext(msg, datetime.now(timezone.utc) + timeout, None, cast("Worker | None", runner))
 
 
 async def run_task(task: TaskDef[_P, _R], payload: _P | None = None, **context: Any) -> _R:

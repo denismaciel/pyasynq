@@ -1,3 +1,4 @@
+import typing
 from importlib.metadata import version
 
 import pyasynq
@@ -9,4 +10,4 @@ def test_version_comes_from_rust():
 
 
 def test_task_info_is_subscriptable():
-    assert pyasynq.TaskInfo[int].__origin__ is pyasynq.TaskInfo
+    assert typing.get_origin(pyasynq.TaskInfo[int]) is pyasynq.TaskInfo

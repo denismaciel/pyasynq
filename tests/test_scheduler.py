@@ -2,9 +2,8 @@
 
 import asyncio
 
-import pytest
-
 import pyasynq
+import pytest
 from conftest import wait_for
 
 
@@ -52,6 +51,7 @@ async def test_inspector_lists_python_entries(make_scheduler, redis_addr):
     [e] = inspector.scheduler_entries()
     assert (e.spec, e.task_type) == ("CRON_TZ=Asia/Tokyo 0 9 * * *", "report")
     assert e.options == ['Queue("reports")', "Retention(3600s)"]
+    assert e.next_enqueue_at is not None
     assert e.next_enqueue_at.hour == 0  # 09:00 Tokyo is 00:00 UTC
     sched.shutdown()
     await run

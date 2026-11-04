@@ -5,12 +5,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from typing_extensions import assert_type
-
 from pyasynq import Asynq, Inspector, TaskContext, TaskDef, TaskInfo
 from pyasynq._core import TaskState
 from pyasynq.postgres import EnqueueStatement
 from pyasynq.testing import run_task
+from typing_extensions import assert_type
 
 app = Asynq()
 

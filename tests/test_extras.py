@@ -8,9 +8,8 @@ import sys
 import textwrap
 import time
 
-import pytest
-
 import pyasynq
+import pytest
 from conftest import ROOT, wait_for
 from pyasynq import Asynq, RateLimited, TaskContext
 from pyasynq.rate import Semaphore
@@ -57,9 +56,7 @@ async def test_rate_limited_task_retries_without_failure(app, run_app, url):
     async with run_app(app, concurrency=2):
         await asyncio.wait_for(started.wait(), 5)
         second = await limited.aenqueue(2)
-        info = await wait_for(
-            lambda: (i := app.inspector.get_task_info("default", second.id)).state == "retry" and i
-        )
+        info = await wait_for(lambda: (i := app.inspector.get_task_info("default", second.id)).state == "retry" and i)
         assert info.retried == 0
         assert info.last_err.startswith("RateLimited:")
         assert app.inspector.get_queue_info("default").failed == 0
@@ -69,7 +66,6 @@ async def test_rate_limited_task_retries_without_failure(app, run_app, url):
 
 async def test_prometheus_collector(app, client):
     from prometheus_client import CollectorRegistry, generate_latest
-
     from pyasynq.metrics import QueueMetricsCollector
 
     client.enqueue("a", b"", queue="q1")
@@ -89,7 +85,6 @@ async def test_otel_trace_continues_in_worker(app, run_app):
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
     from pyasynq.otel import instrument
 
     exporter = InMemorySpanExporter()
@@ -109,6 +104,8 @@ async def test_otel_trace_continues_in_worker(app, run_app):
         assert await traced.wait_result(info, timeout=5) == "ok"
     spans = {s.name: s for s in exporter.get_finished_spans()}
     child = spans["process traced"]
+    assert child.parent is not None
+    assert child.attributes is not None
     assert child.context.trace_id == parent.get_span_context().trace_id
     assert child.parent.span_id == parent.get_span_context().span_id
     assert child.attributes["messaging.message.id"] == info.id
@@ -194,8 +191,17 @@ def test_cli_worker(tmp_path, url, rdb, processes):
         """,
     )
     proc = _cli(
-        tmp_path, "worker", "myapp:app", "-q", "default=1", "-c", "2",
-        "--processes", str(processes), "--shutdown-timeout", "1",
+        tmp_path,
+        "worker",
+        "myapp:app",
+        "-q",
+        "default=1",
+        "-c",
+        "2",
+        "--processes",
+        str(processes),
+        "--shutdown-timeout",
+        "1",
     )
     try:
         client = pyasynq.Client(url)

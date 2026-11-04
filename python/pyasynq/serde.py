@@ -84,9 +84,7 @@ def _from_jsonable(tp: Any, value: Any) -> Any:
     if isinstance(tp, type) and dataclasses.is_dataclass(tp):
         hints = typing.get_type_hints(tp)
         kwargs = {
-            f.name: _from_jsonable(hints.get(f.name), value[f.name])
-            for f in dataclasses.fields(tp)
-            if f.name in value
+            f.name: _from_jsonable(hints.get(f.name), value[f.name]) for f in dataclasses.fields(tp) if f.name in value
         }
         return tp(**kwargs)
     origin = typing.get_origin(tp)

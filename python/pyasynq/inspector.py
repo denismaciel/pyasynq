@@ -31,7 +31,5 @@ class Inspector(_core.Inspector):
     def list_completed_tasks(self, queue: str, *, page: int = 1, size: int = 30) -> list[_core.TaskInfo]:
         return self.list_tasks(queue, "completed", page=page, size=size)
 
-    def list_aggregating_tasks(
-        self, queue: str, group: str, *, page: int = 1, size: int = 30
-    ) -> list[_core.TaskInfo]:
+    def list_aggregating_tasks(self, queue: str, group: str, *, page: int = 1, size: int = 30) -> list[_core.TaskInfo]:
         return self.list_tasks(queue, "aggregating", group=group, page=page, size=size)

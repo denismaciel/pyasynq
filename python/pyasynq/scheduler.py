@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import signal
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from pyasynq import _core
 from pyasynq.worker import DEFAULT_REDIS_URL, seconds

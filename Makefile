@@ -14,7 +14,9 @@ test: dev
 lint: typecheck
 	cargo-clippy clippy --all-targets -- -D warnings
 	cargo-fmt --check
-	ruff check python tests
+	uv run --no-sync ruff check python tests
+	uv run --no-sync ruff format --check python tests
+	uv run --no-sync ty check
 
 # mypy --strict over the package and tests/typing; stubtest keeps _core.pyi
 # in sync with the compiled extension.

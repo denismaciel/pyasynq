@@ -271,8 +271,6 @@ async def test_queue_priority_strict(client, rdb, make_worker):
     for _ in range(3):
         client.enqueue("t", queue="low")
         client.enqueue("t", queue="critical")
-    async with make_worker(
-        handler, concurrency=1, queues={"critical": 6, "low": 1}, strict_priority=True
-    ):
+    async with make_worker(handler, concurrency=1, queues={"critical": 6, "low": 1}, strict_priority=True):
         await wait_for(lambda: len(order) == 6)
     assert order == ["critical"] * 3 + ["low"] * 3

@@ -20,7 +20,7 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
           key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'interop/go/go.sum', 'uv.lock') }}
-      - name: Lint (clippy, rustfmt, ruff, mypy --strict, stubtest)
+      - name: Lint (clippy, rustfmt, ruff, ty, mypy --strict, stubtest)
         run: nix develop -c make lint
       - name: Test (cargo, pytest incl. Go interop)
         run: nix develop -c make test

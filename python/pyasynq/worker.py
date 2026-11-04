@@ -16,10 +16,11 @@ import logging
 import signal
 import threading
 import weakref
+from collections.abc import Awaitable, Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Coroutine, Union, overload
+from typing import Any, overload
 
 from pyasynq import _core
 from pyasynq.context import TaskContext, _current
@@ -39,12 +40,12 @@ log = logging.getLogger("pyasynq.worker")
 
 DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0"
 
-Seconds = Union[float, int, timedelta]
-Handler = Callable[[TaskContext], Union[Awaitable[Any], Any]]
+Seconds = float | int | timedelta
+Handler = Callable[[TaskContext], Awaitable[Any] | Any]
 RetryDelayFunc = Callable[[int, BaseException, TaskContext], Seconds]
-ErrorHandler = Callable[[TaskContext, BaseException], Union[Awaitable[None], None]]
-HealthCheck = Callable[[Union[BaseException, None]], Union[Awaitable[None], None]]
-GroupAggregator = Callable[[str, list[Task]], Union[Awaitable[Task], Task]]
+ErrorHandler = Callable[[TaskContext, BaseException], Awaitable[None] | None]
+HealthCheck = Callable[[BaseException | None], Awaitable[None] | None]
+GroupAggregator = Callable[[str, list[Task]], Awaitable[Task] | Task]
 
 _RUST_ERRORS: dict[str, type[BaseException]] = {
     "context deadline exceeded": DeadlineExceeded,
@@ -66,9 +67,7 @@ def seconds(v: Seconds | None) -> float | None:
 def is_async_callable(fn: Any) -> bool:
     while isinstance(fn, functools.partial):
         fn = fn.func
-    return inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(
-        getattr(fn, "__call__", None)
-    )
+    return inspect.iscoroutinefunction(fn) or (callable(fn) and inspect.iscoroutinefunction(type(fn).__call__))
 
 
 async def maybe_await(value: Any) -> Any:
@@ -250,9 +249,7 @@ class Worker:
         if self._pool is None:
             with self._pool_lock:
                 if self._pool is None:
-                    self._pool = ThreadPoolExecutor(
-                        max_workers=self._pool_size, thread_name_prefix="pyasynq-task"
-                    )
+                    self._pool = ThreadPoolExecutor(max_workers=self._pool_size, thread_name_prefix="pyasynq-task")
         ctx = contextvars.copy_context()
         return await self.loop.run_in_executor(self._pool, ctx.run, fn, *args)
 
@@ -373,9 +370,7 @@ class Worker:
             is_failure = True
         return max(delay, 0.0), is_failure
 
-    def _rust_failure_policy(
-        self, retried: int, err: str, msg: _core.TaskMessage
-    ) -> tuple[float, bool]:
+    def _rust_failure_policy(self, retried: int, err: str, msg: _core.TaskMessage) -> tuple[float, bool]:
         """Called by the engine (from a Rust thread) for failures it records
         itself: lease recovery and unacked cancellations."""
         exc = _RUST_ERRORS.get(err, RuntimeError)(err)
@@ -397,9 +392,7 @@ class Worker:
 
     # -- groups ----------------------------------------------------------------
 
-    async def _aggregate(
-        self, queue: str, group: str, set_id: str, msgs: list[_core.TaskMessage]
-    ) -> None:
+    async def _aggregate(self, queue: str, group: str, set_id: str, msgs: list[_core.TaskMessage]) -> None:
         from pyasynq.client import Client
 
         assert self._group_aggregator is not None
@@ -408,7 +401,7 @@ class Worker:
             agg = await maybe_await(self._group_aggregator(group, tasks))
             if self._client is None:
                 self._client = Client(self._redis_url)
-            opts = {"queue": queue, **agg.options}
+            opts: dict[str, Any] = {"queue": queue, **agg.options}
             await self._client.aenqueue(agg.type, agg.payload, headers=agg.headers, **opts)
             await self._engine._acomplete_aggregation(queue, group, set_id)
         except Exception:

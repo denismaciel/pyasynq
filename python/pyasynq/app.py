@@ -1,12 +1,12 @@
 """The application API: declare tasks once, enqueue and process them.
 
-    app = Asynq("redis://localhost:6379/0")
+app = Asynq("redis://localhost:6379/0")
 
-    @app.task("email:send", queue="critical", max_retry=5)
-    async def send_email(msg: Email, ctx: TaskContext) -> None: ...
+@app.task("email:send", queue="critical", max_retry=5)
+async def send_email(msg: Email, ctx: TaskContext) -> None: ...
 
-    await send_email.aenqueue(Email(to="a@b.c"), process_in=10)
-    app.run_worker(queues={"critical": 6, "default": 3})
+await send_email.aenqueue(Email(to="a@b.c"), process_in=10)
+app.run_worker(queues={"critical": 6, "default": 3})
 """
 
 from __future__ import annotations
@@ -16,13 +16,11 @@ import contextlib
 import functools
 import inspect
 import typing
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterator,
-    Awaitable,
-    Callable,
     Generic,
     Protocol,
     TypeVar,
@@ -55,7 +53,7 @@ if TYPE_CHECKING:
     from pyasynq.postgres import ParamStyle, StatementOptions
     from pyasynq.scheduler import Scheduler
 
-PayloadT = TypeVar("PayloadT", contravariant=True)
+PayloadT_contra = TypeVar("PayloadT_contra", contravariant=True)
 ResultT = TypeVar("ResultT")
 _P = TypeVar("_P")
 _R = TypeVar("_R")
@@ -74,10 +72,10 @@ class TaskFailed(AsynqError):
         self.info = info
 
 
-class TaskDef(Generic[PayloadT, ResultT]):
+class TaskDef(Generic[PayloadT_contra, ResultT]):
     """A registered task: callable directly, enqueueable by name.
 
-    `PayloadT` is what `enqueue` accepts (`None` for tasks without a
+    `PayloadT_contra` is what `enqueue` accepts (`None` for tasks without a
     payload) and `ResultT` what `wait_result` returns.
     """
 
@@ -143,17 +141,15 @@ class TaskDef(Generic[PayloadT, ResultT]):
     @overload
     def enqueue(self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
     @overload
-    def enqueue(self, payload: PayloadT, /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
+    def enqueue(self, payload: PayloadT_contra, /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
     def enqueue(self, payload: Any = None, /, **options: Any) -> TaskInfo[ResultT]:
         data, opts = self.message(payload, **options)
         return self.app.client.enqueue(self.name, data, **opts)
 
     @overload
-    async def aenqueue(
-        self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]
-    ) -> TaskInfo[ResultT]: ...
+    async def aenqueue(self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
     @overload
-    async def aenqueue(self, payload: PayloadT, /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
+    async def aenqueue(self, payload: PayloadT_contra, /, **options: Unpack[EnqueueOptions]) -> TaskInfo[ResultT]: ...
     async def aenqueue(self, payload: Any = None, /, **options: Any) -> TaskInfo[ResultT]:
         data, opts = self.message(payload, **options)
         return await self.app.client.aenqueue(self.name, data, **opts)
@@ -168,7 +164,7 @@ class TaskDef(Generic[PayloadT, ResultT]):
     ) -> EnqueueStatement[ResultT]: ...
     @overload
     def enqueue_statement(
-        self, payload: PayloadT, /, *, paramstyle: ParamStyle = ..., **options: Unpack[StatementOptions]
+        self, payload: PayloadT_contra, /, *, paramstyle: ParamStyle = ..., **options: Unpack[StatementOptions]
     ) -> EnqueueStatement[ResultT]: ...
     def enqueue_statement(
         self, payload: Any = None, /, *, paramstyle: ParamStyle = "format", **options: Any
@@ -181,7 +177,7 @@ class TaskDef(Generic[PayloadT, ResultT]):
     @overload
     def task(self: TaskDef[None, ResultT], /, **options: Unpack[EnqueueOptions]) -> Task: ...
     @overload
-    def task(self, payload: PayloadT, /, **options: Unpack[EnqueueOptions]) -> Task: ...
+    def task(self, payload: PayloadT_contra, /, **options: Unpack[EnqueueOptions]) -> Task: ...
     def task(self, payload: Any = None, /, **options: Any) -> Task:
         """A `Task` value, e.g. for a group aggregator to return."""
         data, opts = self.message(payload, **options)
@@ -339,7 +335,7 @@ class Asynq:
             raise TypeError(f"unknown task options: {sorted(unknown)}")
 
         def register(fn: Callable[..., Any], name: str | None) -> TaskDef[Any, Any]:
-            name = name or f"{fn.__module__}.{fn.__qualname__}"
+            name = name or f"{fn.__module__}.{getattr(fn, '__qualname__', type(fn).__qualname__)}"
             if name in self.tasks:
                 raise ValueError(f"task {name!r} is already registered")
             td: TaskDef[Any, Any] = TaskDef(self, fn, name, dict(options), retry_delay, codec)
@@ -369,7 +365,7 @@ class Asynq:
         self._error_handlers.append(fn)
         return fn
 
-    def lifespan(self, fn: Callable[[Asynq], AsyncIterator[Any]]) -> Callable[..., Any]:
+    def lifespan(self, fn: Callable[[Asynq], AsyncGenerator[Any, None]]) -> Callable[..., Any]:
         """Async generator run around the worker/scheduler (setup, yield, teardown)."""
         self._lifespan = contextlib.asynccontextmanager(fn)
         return fn
@@ -379,9 +375,7 @@ class Asynq:
         self._group_aggregator = fn
         return fn
 
-    def periodic(
-        self, cronspec: str, payload: Any = None, **options: Unpack[TaskOptions]
-    ) -> Callable[[_TD], _TD]:
+    def periodic(self, cronspec: str, payload: Any = None, **options: Unpack[TaskOptions]) -> Callable[[_TD], _TD]:
         """Registers `cronspec` (cron or "@every 30s") for the scheduler.
         Apply on top of `@app.task`."""
         from pyasynq.scheduler import PeriodicEntry
@@ -427,7 +421,7 @@ class Asynq:
         return Worker(self.handle, **options)
 
     @contextlib.asynccontextmanager
-    async def _lifespan_cm(self) -> AsyncIterator[None]:
+    async def _lifespan_cm(self) -> AsyncGenerator[None, None]:
         if self._lifespan is None:
             yield
         else:

@@ -6,10 +6,9 @@ import json
 import threading
 from dataclasses import dataclass, field
 
+import pyasynq
 import pydantic
 import pytest
-
-import pyasynq
 from conftest import FAST, wait_for
 from pyasynq import Asynq, TaskContext
 
@@ -43,6 +42,7 @@ def task_hash(rdb, info):
 async def test_typed_payloads_and_results(app, run_app):
     @app.task("user:signup", retention=60)
     async def signup(s: Signup, ctx: TaskContext) -> dict:
+        assert s.address is not None
         return {"email": s.email, "city": s.address.city, "tags": s.tags, "retry": ctx.retry_count}
 
     @app.task("invoice:render", retention=60)
@@ -62,7 +62,10 @@ async def test_typed_payloads_and_results(app, run_app):
     assert ping.name == "test_app.test_typed_payloads_and_results.<locals>.ping"
     async with run_app(app):
         assert await signup.wait_result(a, timeout=5) == {
-            "email": "a@b.c", "city": "Berlin", "tags": ["x"], "retry": 0,
+            "email": "a@b.c",
+            "city": "Berlin",
+            "tags": ["x"],
+            "retry": 0,
         }
         assert await app.wait_result(b, timeout=5) == Invoice(number=7, amount=3.0)
         assert await ping.wait_result(c, timeout=5) == b"pong"
@@ -150,8 +153,13 @@ async def test_middleware_lifespan_and_error_handlers(redis_addr, rdb):
     with contextlib.suppress(asyncio.CancelledError):
         await run
     assert events == [
-        "startup", ("outer", "boom"), "inner", "handler", "inner-after",
-        ("error", "ValueError"), "shutdown",
+        "startup",
+        ("outer", "boom"),
+        "inner",
+        "handler",
+        "inner-after",
+        ("error", "ValueError"),
+        "shutdown",
     ]
     import time
 

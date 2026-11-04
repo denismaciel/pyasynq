@@ -3,7 +3,6 @@ import threading
 from datetime import timedelta
 
 import pytest
-
 from pyasynq import DuplicateTaskError
 from pyasynq._core import pending_key
 
@@ -44,9 +43,7 @@ async def test_concurrent_aenqueue_keeps_loop_responsive(client, rdb):
     await asyncio.sleep(0)
 
     start = ticker.ticks
-    infos = await asyncio.gather(
-        *(client.aenqueue("bulk", str(i).encode()) for i in range(10_000))
-    )
+    infos = await asyncio.gather(*(client.aenqueue("bulk", str(i).encode()) for i in range(10_000)))
     ticker.stop()
 
     assert len({i.id for i in infos}) == 10_000

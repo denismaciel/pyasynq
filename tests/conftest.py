@@ -5,6 +5,7 @@ import socket
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 import redis
@@ -67,9 +68,23 @@ def postgres_dsn(tmp_path_factory):
     port = _free_port()
     proc = subprocess.Popen(
         [
-            "postgres", "-D", str(data), "-p", str(port), "-k", str(root),
-            "-c", "listen_addresses=127.0.0.1", "-c", "max_connections=500",
-            "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
+            "postgres",
+            "-D",
+            str(data),
+            "-p",
+            str(port),
+            "-k",
+            str(root),
+            "-c",
+            "listen_addresses=127.0.0.1",
+            "-c",
+            "max_connections=500",
+            "-c",
+            "fsync=off",
+            "-c",
+            "synchronous_commit=off",
+            "-c",
+            "full_page_writes=off",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -114,13 +129,13 @@ def client(rdb, redis_addr):
     return pyasynq.Client(f"redis://{redis_addr}/0")
 
 
-FAST = dict(
-    task_check_interval=0.02,
-    delayed_task_check_interval=0.1,
-    heartbeat_interval=0.2,
-    install_signal_handlers=False,
-    shutdown_timeout=2,
-)
+FAST: dict[str, Any] = {
+    "task_check_interval": 0.02,
+    "delayed_task_check_interval": 0.1,
+    "heartbeat_interval": 0.2,
+    "install_signal_handlers": False,
+    "shutdown_timeout": 2,
+}
 
 
 async def wait_for(predicate, timeout=5.0, interval=0.02):

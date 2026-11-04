@@ -3,7 +3,6 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from pyasynq import DuplicateTaskError, TaskIDConflictError
 from pyasynq._core import ALL_QUEUES, queue_key_prefix, task_key
 
@@ -99,9 +98,7 @@ def test_failed_unique_enqueue_writes_nothing(client, rdb):
 
 
 def test_unique_schedule_lock_outlives_wait(client, rdb):
-    info = client.enqueue(
-        "t", process_in=timedelta(hours=1), unique=timedelta(minutes=10)
-    )
+    info = client.enqueue("t", process_in=timedelta(hours=1), unique=timedelta(minutes=10))
     unique_key = rdb.hget(task_key("default", info.id), "unique_key").decode()
     assert 4190 <= rdb.ttl(unique_key) <= 4200
 

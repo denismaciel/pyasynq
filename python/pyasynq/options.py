@@ -7,9 +7,9 @@ misspelled or mistyped options at the call site.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TypedDict, Union
+from typing import TypedDict
 
-Duration = Union[float, timedelta]
+Duration = float | timedelta
 
 
 class TaskOptions(TypedDict, total=False):
