@@ -20,7 +20,7 @@ fn client_err(e: client::Error) -> PyErr {
 }
 
 #[pyclass(name = "TaskInfo", module = "pyasynq._core", frozen)]
-pub struct PyTaskInfo(TaskInfo);
+pub struct PyTaskInfo(pub(crate) TaskInfo);
 
 #[pymethods]
 impl PyTaskInfo {
@@ -82,6 +82,23 @@ impl PyTaskInfo {
     fn next_process_at(&self) -> Option<DateTime<Utc>> {
         self.0.next_process_at
     }
+    /// Bytes written by the handler, while the task is retained.
+    #[getter]
+    fn result(&self) -> Option<Vec<u8>> {
+        self.0.result.clone()
+    }
+    #[getter]
+    fn completed_at(&self) -> Option<DateTime<Utc>> {
+        Some(self.0.msg.completed_at)
+            .filter(|&t| t > 0)
+            .and_then(|t| DateTime::from_timestamp(t, 0))
+    }
+    #[getter]
+    fn last_failed_at(&self) -> Option<DateTime<Utc>> {
+        Some(self.0.msg.last_failed_at)
+            .filter(|&t| t > 0)
+            .and_then(|t| DateTime::from_timestamp(t, 0))
+    }
 
     fn __repr__(&self) -> String {
         format!(
@@ -99,10 +116,10 @@ fn positive_secs(secs: i64) -> Option<Duration> {
 }
 
 /// Arguments shared by `enqueue` and `aenqueue`, already validated.
-struct EnqueueRequest {
+pub(crate) struct EnqueueRequest {
     task_type: String,
     payload: Option<Vec<u8>>,
-    opts: EnqueueOptions,
+    pub(crate) opts: EnqueueOptions,
 }
 
 impl EnqueueRequest {
@@ -115,7 +132,7 @@ impl EnqueueRequest {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn enqueue_request(
+pub(crate) fn enqueue_request(
     task_type: String,
     payload: Option<Vec<u8>>,
     queue: Option<String>,

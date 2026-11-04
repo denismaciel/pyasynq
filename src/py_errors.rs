@@ -31,6 +31,12 @@ create_exception!(
 create_exception!(_core, RedisError, AsynqError, "Redis command failed.");
 create_exception!(
     _core,
+    QueueNotFoundError,
+    AsynqError,
+    "The queue does not exist."
+);
+create_exception!(
+    _core,
     FailedPreconditionError,
     AsynqError,
     "The task is in a state that does not allow the operation."
@@ -42,6 +48,7 @@ pub fn rdb_err(e: rdb::Error) -> PyErr {
         rdb::Error::TaskIdConflict => TaskIDConflictError::new_err(e.to_string()),
         rdb::Error::NotFound => TaskNotFoundError::new_err(e.to_string()),
         rdb::Error::FailedPrecondition(_) => FailedPreconditionError::new_err(e.to_string()),
+        rdb::Error::QueueNotFound(_) => QueueNotFoundError::new_err(e.to_string()),
         rdb::Error::Redis(_) | rdb::Error::Internal(_) => RedisError::new_err(e.to_string()),
     }
 }
@@ -57,5 +64,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "FailedPreconditionError",
         py.get_type::<FailedPreconditionError>(),
     )?;
+    m.add("QueueNotFoundError", py.get_type::<QueueNotFoundError>())?;
     Ok(())
 }

@@ -19,6 +19,7 @@ macro_rules! lua {
 }
 
 mod groups;
+pub mod inspect;
 mod scheduler;
 mod worker;
 
@@ -56,6 +57,8 @@ pub enum Error {
     NotFound,
     #[error("{0}")]
     FailedPrecondition(String),
+    #[error("queue {0:?} does not exist")]
+    QueueNotFound(String),
     #[error("internal error: {0}")]
     Internal(String),
     #[error("redis error: {0}")]

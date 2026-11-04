@@ -1,4 +1,5 @@
 from pyasynq._core import TaskInfo, TaskMessage, version
+from pyasynq.app import Asynq, TaskDef, TaskFailed
 from pyasynq.client import Client
 from pyasynq.context import TaskContext, current_task
 from pyasynq.errors import (
@@ -6,6 +7,7 @@ from pyasynq.errors import (
     DeadlineExceeded,
     DuplicateTaskError,
     FailedPreconditionError,
+    QueueNotFoundError,
     HandlerNotFound,
     LeaseExpired,
     RedisError,
@@ -16,26 +18,34 @@ from pyasynq.errors import (
     TaskIDConflictError,
     TaskNotFoundError,
 )
+from pyasynq.inspector import Inspector
+from pyasynq.scheduler import Scheduler
 from pyasynq.task import Task
 from pyasynq.worker import Worker
 
 __version__ = version()
 
 __all__ = [
+    "Asynq",
     "AsynqError",
     "Client",
     "DeadlineExceeded",
     "DuplicateTaskError",
     "FailedPreconditionError",
+    "QueueNotFoundError",
     "HandlerNotFound",
+    "Inspector",
     "LeaseExpired",
     "RedisError",
     "Retry",
     "RevokeTask",
+    "Scheduler",
     "SkipRetry",
     "Task",
     "TaskCanceled",
     "TaskContext",
+    "TaskDef",
+    "TaskFailed",
     "TaskIDConflictError",
     "TaskInfo",
     "TaskMessage",

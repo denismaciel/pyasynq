@@ -103,6 +103,28 @@ def make_worker(redis_addr, rdb):
     return run
 
 
+@pytest.fixture
+def run_app(rdb):
+    """Runs `app.worker(...)` with fast intervals in the background."""
+    import asyncio
+    import contextlib
+
+    @contextlib.asynccontextmanager
+    async def run(app, **options):
+        worker = app.worker(**{**FAST, **options})
+        task = asyncio.create_task(worker.run())
+        await wait_for(lambda: worker.status == "active" or task.done())
+        if task.done():
+            task.result()
+        try:
+            yield worker
+        finally:
+            worker.shutdown()
+            await task
+
+    return run
+
+
 class GoAsynq:
     """Runs the Go helper in interop/go against the test redis."""
 

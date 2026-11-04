@@ -9,8 +9,11 @@ mod py_broker;
 mod py_client;
 mod py_engine;
 mod py_errors;
+mod py_inspector;
+mod py_scheduler;
 pub mod rdb;
 mod runtime;
+pub mod scheduler;
 
 #[pyfunction]
 fn version() -> &'static str {
@@ -38,5 +41,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     py_base::register(m)?;
     py_client::register(m)?;
     py_broker::register(m)?;
+    py_inspector::register(m)?;
+    py_scheduler::register(m)?;
     Ok(())
 }

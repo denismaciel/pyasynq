@@ -39,6 +39,7 @@ pub struct TaskInfo {
     pub msg: TaskMessage,
     pub state: TaskState,
     pub next_process_at: Option<DateTime<Utc>>,
+    pub result: Option<Vec<u8>>,
 }
 
 fn invalid(msg: &str) -> Error {
@@ -124,6 +125,7 @@ pub async fn enqueue(
                 msg,
                 state: TaskState::Scheduled,
                 next_process_at: Some(process_at),
+                result: None,
             })
         }
         None if opts.group.is_some() => {
@@ -133,6 +135,7 @@ pub async fn enqueue(
                 msg,
                 state: TaskState::Aggregating,
                 next_process_at: None,
+                result: None,
             })
         }
         None => {
@@ -145,6 +148,7 @@ pub async fn enqueue(
                 msg,
                 state: TaskState::Pending,
                 next_process_at: Some(now),
+                result: None,
             })
         }
     }
