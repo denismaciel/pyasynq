@@ -83,10 +83,19 @@ pub struct Rdb {
     conn: ConnectionManager,
 }
 
+/// redis-rs gives up on a response after 500ms by default, which fails
+/// bursts of enqueues on a loaded Redis. These are go-redis's dial timeout
+/// and a more forgiving response timeout.
+fn connection_config() -> redis::aio::ConnectionManagerConfig {
+    redis::aio::ConnectionManagerConfig::new()
+        .set_connection_timeout(Some(Duration::from_secs(5)))
+        .set_response_timeout(Some(Duration::from_secs(10)))
+}
+
 impl Rdb {
     pub async fn connect(url: &str) -> Result<Self> {
         let client = redis::Client::open(url)?;
-        let conn = ConnectionManager::new(client.clone()).await?;
+        let conn = ConnectionManager::new_with_config(client.clone(), connection_config()).await?;
         Ok(Self { client, conn })
     }
 
