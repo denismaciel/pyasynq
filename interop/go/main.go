@@ -29,12 +29,16 @@ type taskJSON struct {
 	Deadline int64             `json:"deadline"`
 	Group    string            `json:"group"`
 	Retain   float64           `json:"retention_seconds"`
+	NextAt   int64             `json:"next_process_at"`
 }
 
 func toJSON(info *asynq.TaskInfo) taskJSON {
-	var deadline int64
+	var deadline, nextAt int64
 	if !info.Deadline.IsZero() {
 		deadline = info.Deadline.Unix()
+	}
+	if !info.NextProcessAt.IsZero() {
+		nextAt = info.NextProcessAt.Unix()
 	}
 	return taskJSON{
 		ID:       info.ID,
@@ -50,6 +54,7 @@ func toJSON(info *asynq.TaskInfo) taskJSON {
 		Deadline: deadline,
 		Group:    info.Group,
 		Retain:   info.Retention.Seconds(),
+		NextAt:   nextAt,
 	}
 }
 
@@ -62,6 +67,9 @@ func main() {
 	addr := fs.String("addr", "localhost:6379", "redis address")
 	queue := fs.String("queue", "critical", "queue name")
 	id := fs.String("id", "", "task id")
+	typename := fs.String("type", "email:send", "task type")
+	payload := fs.String("payload", `{"to":"denis@example.com"}`, "task payload")
+	unique := fs.Duration("unique", 0, "uniqueness TTL, e.g. 1h")
 	fs.Parse(os.Args[2:])
 	redisOpt := asynq.RedisClientOpt{Addr: *addr}
 
@@ -72,8 +80,8 @@ func main() {
 		client := asynq.NewClient(redisOpt)
 		defer client.Close()
 		task := asynq.NewTaskWithHeaders(
-			"email:send",
-			[]byte(`{"to":"denis@example.com"}`),
+			*typename,
+			[]byte(*payload),
 			map[string]string{"content-type": "application/json"},
 		)
 		opts := []asynq.Option{
@@ -85,6 +93,9 @@ func main() {
 		if *id != "" {
 			opts = append(opts, asynq.TaskID(*id))
 		}
+		if *unique > 0 {
+			opts = append(opts, asynq.Unique(*unique))
+		}
 		info, err = client.Enqueue(task, opts...)
 	case "inspect":
 		inspector := asynq.NewInspector(redisOpt)
@@ -94,8 +105,8 @@ func main() {
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
+		return
 	}
 	json.NewEncoder(os.Stdout).Encode(toJSON(info))
 }

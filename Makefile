@@ -9,9 +9,11 @@ test: dev
 	cargo test
 	uv run --no-sync pytest -q
 
+# cargo prefers subcommands in ~/.cargo/bin (rustup) over PATH, so call the
+# dev shell's binaries directly to stay on the flake's toolchain.
 lint:
-	cargo clippy -- -D warnings
-	cargo fmt --check
+	cargo-clippy clippy --all-targets -- -D warnings
+	cargo-fmt --check
 	ruff check python tests
 
 redis:

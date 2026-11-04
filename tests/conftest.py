@@ -49,6 +49,13 @@ def rdb(redis_addr):
     client.close()
 
 
+@pytest.fixture
+def client(rdb, redis_addr):
+    import pyasynq
+
+    return pyasynq.Client(f"redis://{redis_addr}/0")
+
+
 class GoAsynq:
     """Runs the Go helper in interop/go against the test redis."""
 

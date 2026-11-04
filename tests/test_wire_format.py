@@ -37,7 +37,11 @@ def test_go_reads_task_written_by_python(rdb, go_asynq):
     rdb.sadd(ALL_QUEUES, "critical")
     rdb.hset(
         task_key("critical", msg.id),
-        mapping={"msg": msg.encode(), "state": "pending", "pending_since": time.time_ns()},
+        mapping={
+            "msg": msg.encode(),
+            "state": "pending",
+            "pending_since": time.time_ns(),
+        },
     )
     rdb.lpush(pending_key("critical"), msg.id)
 
