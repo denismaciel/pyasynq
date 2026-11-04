@@ -101,6 +101,25 @@ func main() {
 		inspector := asynq.NewInspector(redisOpt)
 		defer inspector.Close()
 		info, err = inspector.GetTaskInfo(*queue, *id)
+	case "pause":
+		inspector := asynq.NewInspector(redisOpt)
+		defer inspector.Close()
+		if err := inspector.PauseQueue(*queue); err != nil {
+			json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(os.Stdout).Encode(map[string]bool{"paused": true})
+		return
+	case "queue":
+		inspector := asynq.NewInspector(redisOpt)
+		defer inspector.Close()
+		qinfo, err := inspector.GetQueueInfo(*queue)
+		if err != nil {
+			json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(os.Stdout).Encode(qinfo)
+		return
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}

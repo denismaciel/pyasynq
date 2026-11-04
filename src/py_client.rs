@@ -3,41 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::client::{self, EnqueueOptions, TaskInfo};
-use crate::rdb::{self, Rdb};
+use crate::py_errors::rdb_err;
+use crate::rdb::Rdb;
 use crate::{aio, runtime};
-
-create_exception!(
-    _core,
-    AsynqError,
-    PyException,
-    "Base class for pyasynq errors."
-);
-create_exception!(
-    _core,
-    DuplicateTaskError,
-    AsynqError,
-    "A task with the same uniqueness lock already exists."
-);
-create_exception!(
-    _core,
-    TaskIDConflictError,
-    AsynqError,
-    "A task with the given task_id already exists."
-);
-create_exception!(_core, RedisError, AsynqError, "Redis command failed.");
-
-fn rdb_err(e: rdb::Error) -> PyErr {
-    match e {
-        rdb::Error::DuplicateTask => DuplicateTaskError::new_err(e.to_string()),
-        rdb::Error::TaskIdConflict => TaskIDConflictError::new_err(e.to_string()),
-        rdb::Error::Redis(_) => RedisError::new_err(e.to_string()),
-    }
-}
 
 fn client_err(e: client::Error) -> PyErr {
     match e {
@@ -280,12 +252,7 @@ impl PyClient {
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = m.py();
     m.add_class::<PyClient>()?;
     m.add_class::<PyTaskInfo>()?;
-    m.add("AsynqError", py.get_type::<AsynqError>())?;
-    m.add("DuplicateTaskError", py.get_type::<DuplicateTaskError>())?;
-    m.add("TaskIDConflictError", py.get_type::<TaskIDConflictError>())?;
-    m.add("RedisError", py.get_type::<RedisError>())?;
     Ok(())
 }

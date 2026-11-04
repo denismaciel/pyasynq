@@ -4,6 +4,7 @@ from pyasynq._core import (
     RedisError,
     TaskIDConflictError,
     TaskInfo,
+    TaskNotFoundError,
     version,
 )
 from pyasynq.client import Client
@@ -17,6 +18,7 @@ __all__ = [
     "RedisError",
     "TaskIDConflictError",
     "TaskInfo",
+    "TaskNotFoundError",
     "__version__",
     "version",
 ]
