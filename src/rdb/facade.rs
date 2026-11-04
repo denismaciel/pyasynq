@@ -139,9 +139,12 @@ delegate! {
 
     fn subscribe_cancellations(&self) -> Result<Cancellations>;
     fn requeue(&self, msg: &TaskMessage) -> Result<()>;
-    fn retry(&self, msg: &TaskMessage, retry_at: DateTime<Utc>, err_msg: &str, is_failure: bool)
+    /// With `lease_cutoff`, only applies while the task's lease is still
+    /// expired at the cutoff, so a stale recoverer can't touch a newer attempt.
+    fn retry(&self, msg: &TaskMessage, retry_at: DateTime<Utc>, err_msg: &str, is_failure: bool,
+        lease_cutoff: Option<DateTime<Utc>>) -> Result<()>;
+    fn archive(&self, msg: &TaskMessage, err_msg: &str, lease_cutoff: Option<DateTime<Utc>>)
         -> Result<()>;
-    fn archive(&self, msg: &TaskMessage, err_msg: &str) -> Result<()>;
     fn forward_if_ready(&self, qname: &str) -> Result<u64>;
     fn extend_lease(&self, qname: &str, ids: &[String], lease: Duration) -> Result<DateTime<Utc>>;
     fn list_lease_expired(&self, cutoff: DateTime<Utc>, qnames: &[String])

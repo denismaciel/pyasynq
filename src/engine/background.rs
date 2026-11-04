@@ -25,7 +25,10 @@ where
     Fut: std::future::Future<Output = ()>,
 {
     loop {
-        tick().await;
+        tokio::select! {
+            _ = stop.cancelled() => return,
+            _ = tick() => {}
+        }
         tokio::select! {
             _ = stop.cancelled() => return,
             _ = tokio::time::sleep(every) => {}
@@ -140,7 +143,7 @@ pub async fn recoverer(shared: Arc<Shared>, stop: CancellationToken) {
                 for msg in msgs {
                     wlog!(warn, "recovering task id={} with expired lease", msg.id);
                     let outcome = shared.decide_failure(&msg, ERR_LEASE_EXPIRED).await;
-                    if let Err(e) = apply(&shared.rdb, &msg, &outcome).await {
+                    if let Err(e) = apply(&shared.rdb, &msg, &outcome, Some(cutoff)).await {
                         wlog!(warn, "recoverer: could not recover task id={}: {e}", msg.id);
                     }
                 }
@@ -176,7 +179,7 @@ pub async fn syncer(
                     pending.push(r);
                 }
                 for r in pending {
-                    if let Err(e) = apply(&shared.rdb, &r.msg, &r.outcome).await {
+                    if let Err(e) = apply(&shared.rdb, &r.msg, &r.outcome, None).await {
                         wlog!(error, "could not sync task id={} on shutdown: {e}", r.msg.id);
                     }
                 }
@@ -190,7 +193,7 @@ pub async fn syncer(
                         wlog!(warn, "giving up syncing task id={}: lease expired", r.msg.id);
                         continue;
                     }
-                    if apply(&shared.rdb, &r.msg, &r.outcome).await.is_err() {
+                    if apply(&shared.rdb, &r.msg, &r.outcome, None).await.is_err() {
                         still.push(r);
                     }
                 }

@@ -35,6 +35,10 @@ pub const ERR_LEASE_EXPIRED: &str = "asynq: task lease expired";
 pub const ERR_DEADLINE_EXCEEDED: &str = "context deadline exceeded";
 pub const ERR_CANCELED: &str = "context canceled";
 
+/// How long shutdown waits for its last broker writes (requeues, final
+/// syncs, clearing the server state) when the broker is unresponsive.
+const FINAL_WRITES_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Identifies one attempt at running a task. Task IDs are only unique per
 /// queue and repeat across retries, so every event, timer and ack refers
 /// to the execution instead.
@@ -394,7 +398,7 @@ impl Shared {
             );
             return;
         }
-        if let Err(e) = apply(&self.rdb, &w.msg, &outcome).await {
+        if let Err(e) = apply(&self.rdb, &w.msg, &outcome, None).await {
             wlog!(
                 warn,
                 "could not finalize task id={}: {e}; will retry syncing",
@@ -480,14 +484,16 @@ impl Shared {
     /// Shutdown timeout hit: push every unfinished task back to its queue.
     async fn abort_all(&self) {
         let execs: Vec<ExecId> = self.inflight.lock().unwrap().keys().copied().collect();
+        let deadline = tokio::time::Instant::now() + FINAL_WRITES_TIMEOUT;
         for exec in execs {
             let Some(w) = self.take(exec) else { continue };
             let id = w.msg.id.clone();
             wlog!(warn, "quitting worker; task id={id}");
             if w.lease.is_valid() {
-                match self.rdb.requeue(&w.msg).await {
-                    Ok(()) => wlog!(info, "pushed task id={id} back to queue"),
-                    Err(e) => wlog!(error, "could not push task id={id} back to queue: {e}"),
+                match tokio::time::timeout_at(deadline, self.rdb.requeue(&w.msg)).await {
+                    Ok(Ok(())) => wlog!(info, "pushed task id={id} back to queue"),
+                    Ok(Err(e)) => wlog!(error, "could not push task id={id} back to queue: {e}"),
+                    Err(_) => wlog!(error, "timed out pushing task id={id} back to queue"),
                 }
             }
             self.emit(Event::Cancel {
@@ -499,7 +505,13 @@ impl Shared {
     }
 }
 
-pub async fn apply(rdb: &Rdb, msg: &TaskMessage, outcome: &Outcome) -> rdb::Result<()> {
+/// `lease_cutoff` is set by the recoverer; see [`Rdb::retry`].
+pub async fn apply(
+    rdb: &Rdb,
+    msg: &TaskMessage,
+    outcome: &Outcome,
+    lease_cutoff: Option<DateTime<Utc>>,
+) -> rdb::Result<()> {
     match outcome {
         Outcome::Success { result } => {
             if msg.retention > 0 {
@@ -516,8 +528,24 @@ pub async fn apply(rdb: &Rdb, msg: &TaskMessage, outcome: &Outcome) -> rdb::Resu
             err,
             retry_at,
             is_failure,
-        } => rdb.retry(msg, *retry_at, err, *is_failure).await,
-        Outcome::Archive { err } => rdb.archive(msg, err).await,
+        } => {
+            rdb.retry(msg, *retry_at, err, *is_failure, lease_cutoff)
+                .await
+        }
+        Outcome::Archive { err } => rdb.archive(msg, err, lease_cutoff).await,
+    }
+}
+
+/// Awaits a loop that was told to stop, aborting it if its last broker
+/// writes hang.
+async fn join_within(h: JoinHandle<()>, limit: Duration) {
+    let abort = h.abort_handle();
+    if tokio::time::timeout(limit, h).await.is_err() {
+        wlog!(
+            warn,
+            "background loop did not stop within {limit:?}; aborting it"
+        );
+        abort.abort();
     }
 }
 
@@ -671,10 +699,10 @@ impl Engine {
 
         self.background.cancel();
         for h in loops.background {
-            let _ = h.await;
+            join_within(h, FINAL_WRITES_TIMEOUT).await;
         }
         self.heartbeat.cancel();
-        let _ = loops.heartbeater.await;
+        join_within(loops.heartbeater, FINAL_WRITES_TIMEOUT).await;
         s.set_status(Status::Closed);
         s.emit(Event::Closed);
         wlog!(info, "exiting");

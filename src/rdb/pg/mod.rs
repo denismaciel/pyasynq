@@ -26,9 +26,10 @@ use super::{decode, Cancellations, Error, Result, AGGREGATION_TIMEOUT};
 use crate::base::{self, pb, TaskMessage, TaskState};
 use crate::client::TaskInfo;
 
-/// The schema, applied on connect when the database has an older version.
-const SCHEMA: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: i32 = 1;
+/// Schema migrations, applied on connect; migration N brings the database
+/// to version N.
+const MIGRATIONS: &[&str] = &[include_str!("schema.sql"), include_str!("schema_2.sql")];
+const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 const VERSION_TABLE: &str = "CREATE TABLE IF NOT EXISTS pyasynq_schema_version (
     version integer PRIMARY KEY,
     applied_at timestamptz NOT NULL DEFAULT now()
@@ -37,9 +38,14 @@ const VERSION_TABLE: &str = "CREATE TABLE IF NOT EXISTS pyasynq_schema_version (
 /// The full migration as one script, for applying it with an external tool
 /// instead of letting pyasynq migrate on connect.
 pub fn migration_sql() -> String {
-    format!(
-        "{VERSION_TABLE}\n\n{SCHEMA}\nINSERT INTO pyasynq_schema_version (version) VALUES ({SCHEMA_VERSION});\n"
-    )
+    let mut sql = format!("{VERSION_TABLE}\n");
+    for (i, m) in MIGRATIONS.iter().enumerate() {
+        let version = i + 1;
+        sql.push_str(&format!(
+            "\n{m}\nINSERT INTO pyasynq_schema_version (version) VALUES ({version});\n"
+        ));
+    }
+    sql
 }
 
 const PENDING_CHANNEL: &str = "pyasynq_pending";
@@ -99,6 +105,46 @@ fn msgs(rows: Vec<Row>) -> Result<Vec<TaskMessage>> {
 
 fn group_required(group: Option<&str>) -> Result<&str> {
     group.ok_or_else(|| Error::FailedPrecondition("group required".into()))
+}
+
+/// A pooled connection for a query whose effect must not land unseen. If
+/// the future is dropped mid-query (shutdown), the query is canceled and the
+/// connection discarded instead of returned to the pool.
+struct CancelOnDrop {
+    client: Option<deadpool_postgres::Object>,
+    tls: MakeRustlsConnect,
+}
+
+impl CancelOnDrop {
+    /// Returns the connection to the pool.
+    fn release(mut self) {
+        self.client.take();
+    }
+}
+
+impl std::ops::Deref for CancelOnDrop {
+    type Target = deadpool_postgres::Object;
+
+    fn deref(&self) -> &Self::Target {
+        self.client.as_ref().expect("connection released")
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        let Some(obj) = self.client.take() else {
+            return;
+        };
+        let token = obj.cancel_token();
+        let client = deadpool_postgres::Object::take(obj);
+        let tls = self.tls.clone();
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                let _ = token.cancel_query(tls).await;
+                drop(client);
+            });
+        }
+    }
 }
 
 /// A new row for `pyasynq_tasks`.
@@ -174,11 +220,11 @@ impl PgRdb {
         let row = tx
             .query_one("SELECT max(version) FROM pyasynq_schema_version", &[])
             .await?;
-        if current(row) < SCHEMA_VERSION {
-            tx.batch_execute(SCHEMA).await?;
+        for version in current(row) + 1..=SCHEMA_VERSION {
+            tx.batch_execute(MIGRATIONS[version as usize - 1]).await?;
             tx.execute(
                 "INSERT INTO pyasynq_schema_version (version) VALUES ($1)",
-                &[&SCHEMA_VERSION],
+                &[&version],
             )
             .await?;
         }
@@ -335,7 +381,12 @@ impl PgRdb {
         lease: Duration,
         max: usize,
     ) -> Result<Vec<(TaskMessage, DateTime<Utc>)>> {
-        let client = self.pool.get().await?;
+        // Dropped mid-claim, the claim must roll back: nobody would run the
+        // tasks until their leases expired.
+        let client = CancelOnDrop {
+            client: Some(self.pool.get().await?),
+            tls: self.tls.clone(),
+        };
         // RETURNING has no order, hence returning the sort key.
         let stmt = client
             .prepare_cached(
@@ -372,6 +423,7 @@ impl PgRdb {
                 out.push((decode(row.get(0))?, lease_expires_at));
             }
         }
+        client.release();
         Ok(out)
     }
 
@@ -461,6 +513,7 @@ impl PgRdb {
         retry_at: DateTime<Utc>,
         err_msg: &str,
         is_failure: bool,
+        lease_cutoff: Option<DateTime<Utc>>,
     ) -> Result<()> {
         let now = Utc::now();
         let mut modified = msg.clone();
@@ -474,6 +527,7 @@ impl PgRdb {
                  UPDATE pyasynq_tasks
                  SET state = 'retry', msg = $3, process_at = $4, lease_expires_at = NULL
                  WHERE queue = $1 AND id = $2 AND state = 'active'
+                     AND ($7::timestamptz IS NULL OR lease_expires_at <= $7)
                  RETURNING 1
              )
              SELECT CASE WHEN $6 THEN pyasynq_count($1, $5, 1, 1) END FROM t",
@@ -484,13 +538,19 @@ impl PgRdb {
                 &ts(retry_at.timestamp()),
                 &today(now),
                 &is_failure,
+                &lease_cutoff,
             ],
         )
         .await
     }
 
     /// Moves an active task to the archive. The janitor trims the archive.
-    pub async fn archive(&self, msg: &TaskMessage, err_msg: &str) -> Result<()> {
+    pub async fn archive(
+        &self,
+        msg: &TaskMessage,
+        err_msg: &str,
+        lease_cutoff: Option<DateTime<Utc>>,
+    ) -> Result<()> {
         let now = Utc::now();
         let mut modified = msg.clone();
         modified.error_msg = err_msg.to_string();
@@ -500,6 +560,7 @@ impl PgRdb {
                  UPDATE pyasynq_tasks
                  SET state = 'archived', msg = $3, archived_at = $4, lease_expires_at = NULL
                  WHERE queue = $1 AND id = $2 AND state = 'active'
+                     AND ($6::timestamptz IS NULL OR lease_expires_at <= $6)
                  RETURNING 1
              )
              SELECT pyasynq_count($1, $5, 1, 1) FROM t",
@@ -509,6 +570,7 @@ impl PgRdb {
                 &base::encode_message(&modified),
                 &now,
                 &today(now),
+                &lease_cutoff,
             ],
         )
         .await
@@ -656,7 +718,10 @@ impl PgRdb {
                      WHERE queue = $1 AND state = 'completed' AND expires_at <= $2
                      LIMIT $3
                  ) d
-                 WHERE t.queue = d.queue AND t.id = d.id",
+                 WHERE t.queue = d.queue AND t.id = d.id
+                     -- Rechecked against the latest row version if it was updated
+                     -- while we waited for its lock (e.g. requeued by run_task).
+                     AND t.state = 'completed' AND t.expires_at <= $2",
             )
             .await?;
         let mut total = 0;
@@ -1532,15 +1597,30 @@ impl PgRdb {
                 "cannot remove queue with active tasks".into(),
             ));
         }
+        // A claim committing while we wait for its row lock turns the row
+        // active; the DELETE then skips it and the check below aborts.
         tx.execute(
             "WITH d AS (
-                 DELETE FROM pyasynq_tasks WHERE queue = $1 RETURNING id, unique_key
+                 DELETE FROM pyasynq_tasks WHERE queue = $1 AND state <> 'active'
+                 RETURNING id, unique_key
              )
              DELETE FROM pyasynq_unique_locks l USING d
              WHERE l.key = d.unique_key AND l.task_id = d.id",
             &[&qname],
         )
         .await?;
+        let claimed: bool = tx
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM pyasynq_tasks WHERE queue = $1)",
+                &[&qname],
+            )
+            .await?
+            .get(0);
+        if claimed {
+            return Err(Error::FailedPrecondition(
+                "cannot remove queue with active tasks".into(),
+            ));
+        }
         tx.execute(
             "DELETE FROM pyasynq_aggregation_sets WHERE queue = $1",
             &[&qname],

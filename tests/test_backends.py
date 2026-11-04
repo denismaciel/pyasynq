@@ -2,12 +2,17 @@
 
 import asyncio
 import json
+import threading
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+import psycopg
 import pyasynq
 import pytest
-from conftest import wait_for
+import redis
+from conftest import FAST, wait_for
 from pyasynq import Asynq, TaskContext
+from pyasynq._core import Broker
 from pyasynq.inspector import Inspector
 from pyasynq.rate import RateLimited, Semaphore
 
@@ -294,3 +299,60 @@ async def test_deadline_in_the_past_is_archived(app, run_app, inspector):
             timeout=10,
         )
     assert dead.last_err == "context deadline exceeded"
+
+
+def expire_lease(broker_url, task_id):
+    if broker_url.startswith("redis"):
+        redis.Redis.from_url(broker_url).zadd("asynq:{default}:lease", {task_id: 1})
+    else:
+        with psycopg.connect(broker_url, autocommit=True) as conn:
+            conn.execute(
+                "UPDATE pyasynq_tasks SET lease_expires_at = now() - interval '2 minutes' WHERE id = %s",
+                (task_id,),
+            )
+
+
+async def test_slow_recoverer_leaves_newer_attempt_alone(broker_url, client, inspector):
+    info = client.enqueue("work", max_retry=1, retention=60)
+    Broker(broker_url).dequeue("default")
+    expire_lease(broker_url, info.id)
+    policy_entered = threading.Event()
+    release_policy = threading.Event()
+    handler_entered = asyncio.Event()
+    release_handler = asyncio.Event()
+
+    def slow_policy(*_):
+        policy_entered.set()
+        release_policy.wait(8)
+        return 0
+
+    async def handler(ctx):
+        handler_entered.set()
+        await release_handler.wait()
+
+    opts: dict[str, Any] = {**FAST, "recoverer_interval": 100, "recoverer_skew": 0, "shutdown_timeout": 0.1}
+    slow = pyasynq.Worker(handler, redis_url=broker_url, retry_delay=slow_policy, **opts)
+    fast = pyasynq.Worker(handler, redis_url=broker_url, retry_delay=lambda *_: 0, **opts)
+    slow_run = asyncio.create_task(slow.run())
+    fast_run = None
+    try:
+        # The slow recoverer has read the expired attempt; the fast one
+        # retries it and starts a new attempt.
+        await wait_for(policy_entered.is_set)
+        slow.stop()
+        fast_run = asyncio.create_task(fast.run())
+        await asyncio.wait_for(handler_entered.wait(), 5)
+        fast.stop()
+        release_policy.set()
+        await asyncio.sleep(0.3)
+        assert inspector.get_task_info("default", info.id).state == "active"
+        release_handler.set()
+        await wait_for(lambda: inspector.get_task_info("default", info.id).state == "completed")
+    finally:
+        release_policy.set()
+        release_handler.set()
+        slow.shutdown()
+        fast.shutdown()
+        await asyncio.wait_for(slow_run, 5)
+        if fast_run:
+            await asyncio.wait_for(fast_run, 5)

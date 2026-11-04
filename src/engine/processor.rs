@@ -31,11 +31,11 @@ pub async fn run(shared: Arc<Shared>, stop: CancellationToken) {
             }
         }
         let qnames = shared.queues.order();
-        match shared
-            .rdb
-            .dequeue_batch(&qnames, shared.cfg.lease_duration, permits.len())
-            .await
-        {
+        let dequeued = tokio::select! {
+            _ = stop.cancelled() => return,
+            r = shared.rdb.dequeue_batch(&qnames, shared.cfg.lease_duration, permits.len()) => r,
+        };
+        match dequeued {
             Ok(tasks) if !tasks.is_empty() => {
                 for ((msg, lease_expires_at), permit) in tasks.into_iter().zip(permits) {
                     shared.start_task(msg, lease_expires_at, permit);

@@ -14,6 +14,14 @@
 -- ARGV[5] -> max number of tasks in archive
 -- ARGV[6] -> stats expiration timestamp
 -- ARGV[7] -> max int64 value
+-- ARGV[8] -> lease cutoff unix timestamp, or -1; with a cutoff, only a task whose
+--             lease expired by then is moved
+if tonumber(ARGV[8]) >= 0 then
+  local lease = redis.call("ZSCORE", KEYS[3], ARGV[1])
+  if not lease or tonumber(lease) > tonumber(ARGV[8]) then
+    return redis.error_reply("NOT FOUND")
+  end
+end
 if redis.call("LREM", KEYS[2], 0, ARGV[1]) == 0 then
   return redis.error_reply("NOT FOUND")
 end

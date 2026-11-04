@@ -105,8 +105,17 @@ def test_schema_applied_externally(pg_url):
         conn.execute(schema_sql())
         pyasynq.Client(pg_url).enqueue("t")
         pyasynq.Client(pg_url)
-        [(versions,)] = conn.execute("SELECT count(*) FROM pyasynq_schema_version").fetchall()
-    assert versions == 1
+        versions = conn.execute("SELECT version FROM pyasynq_schema_version ORDER BY version").fetchall()
+    assert versions == [(1,), (2,)]
+
+
+def test_migrates_older_schema_on_connect(pg_url):
+    pyasynq.Client(pg_url)
+    with psycopg.connect(pg_url, autocommit=True) as conn:
+        conn.execute("DELETE FROM pyasynq_schema_version WHERE version > 1")
+        pyasynq.Client(pg_url).enqueue("t")
+        versions = conn.execute("SELECT version FROM pyasynq_schema_version ORDER BY version").fetchall()
+    assert versions == [(1,), (2,)]
 
 
 def test_bad_url_raises_broker_error():

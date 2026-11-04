@@ -51,6 +51,7 @@ impl RedisRdb {
         retry_at: DateTime<Utc>,
         err_msg: &str,
         is_failure: bool,
+        lease_cutoff: Option<DateTime<Utc>>,
     ) -> Result<()> {
         let now = Utc::now();
         let mut modified = msg.clone();
@@ -77,6 +78,7 @@ impl RedisRdb {
             .arg(stats_expire_at(now))
             .arg(is_failure as i64)
             .arg(i64::MAX)
+            .arg(lease_cutoff.map_or(-1, |c| c.timestamp()))
             .invoke_async(&mut conn)
             .await?;
         Ok(())
@@ -84,7 +86,12 @@ impl RedisRdb {
 
     /// Moves an active task to the archive (dead letters), trimming the
     /// archive by age and size.
-    pub async fn archive(&self, msg: &TaskMessage, err_msg: &str) -> Result<()> {
+    pub async fn archive(
+        &self,
+        msg: &TaskMessage,
+        err_msg: &str,
+        lease_cutoff: Option<DateTime<Utc>>,
+    ) -> Result<()> {
         let now = Utc::now();
         let mut modified = msg.clone();
         modified.error_msg = err_msg.to_string();
@@ -109,6 +116,7 @@ impl RedisRdb {
             .arg(MAX_ARCHIVE_SIZE)
             .arg(stats_expire_at(now))
             .arg(i64::MAX)
+            .arg(lease_cutoff.map_or(-1, |c| c.timestamp()))
             .invoke_async(&mut conn)
             .await?;
         Ok(())
