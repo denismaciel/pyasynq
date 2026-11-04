@@ -141,3 +141,7 @@ make lint
 ```
 
 Layout: `src/` holds the Rust engine and pyo3 bindings (Lua scripts in `src/rdb/lua/`), `python/pyasynq/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
