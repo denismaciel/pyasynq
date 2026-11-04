@@ -126,9 +126,15 @@ pub async fn enqueue(
                 next_process_at: Some(process_at),
             })
         }
-        None if opts.group.is_some() => Err(invalid(
-            "group tasks are not supported yet (planned for chunk 14)",
-        )),
+        None if opts.group.is_some() => {
+            let group = opts.group.as_deref().unwrap_or_default();
+            rdb.add_to_group(&msg, group, unique_ttl).await?;
+            Ok(TaskInfo {
+                msg,
+                state: TaskState::Aggregating,
+                next_process_at: None,
+            })
+        }
         None => {
             let now_nanos = now.timestamp_nanos_opt().unwrap_or_default();
             match unique_ttl {

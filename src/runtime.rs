@@ -4,8 +4,9 @@ use std::sync::LazyLock;
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
-/// One tokio runtime per process, created on first use. Its worker threads
-/// never touch Python objects.
+/// One tokio runtime per process, created on first use. Its threads only
+/// enter Python via `Python::attach` (logging, policy callbacks, resolving
+/// asyncio futures), never while holding engine locks.
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()

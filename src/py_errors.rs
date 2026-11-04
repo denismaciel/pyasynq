@@ -29,13 +29,20 @@ create_exception!(
     "The task is not where the operation expected it to be."
 );
 create_exception!(_core, RedisError, AsynqError, "Redis command failed.");
+create_exception!(
+    _core,
+    FailedPreconditionError,
+    AsynqError,
+    "The task is in a state that does not allow the operation."
+);
 
 pub fn rdb_err(e: rdb::Error) -> PyErr {
     match e {
         rdb::Error::DuplicateTask => DuplicateTaskError::new_err(e.to_string()),
         rdb::Error::TaskIdConflict => TaskIDConflictError::new_err(e.to_string()),
         rdb::Error::NotFound => TaskNotFoundError::new_err(e.to_string()),
-        rdb::Error::Redis(_) => RedisError::new_err(e.to_string()),
+        rdb::Error::FailedPrecondition(_) => FailedPreconditionError::new_err(e.to_string()),
+        rdb::Error::Redis(_) | rdb::Error::Internal(_) => RedisError::new_err(e.to_string()),
     }
 }
 
@@ -46,5 +53,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("TaskIDConflictError", py.get_type::<TaskIDConflictError>())?;
     m.add("TaskNotFoundError", py.get_type::<TaskNotFoundError>())?;
     m.add("RedisError", py.get_type::<RedisError>())?;
+    m.add(
+        "FailedPreconditionError",
+        py.get_type::<FailedPreconditionError>(),
+    )?;
     Ok(())
 }

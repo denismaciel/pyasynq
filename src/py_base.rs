@@ -5,6 +5,25 @@ use pyo3::prelude::*;
 
 use crate::base;
 
+/// A duration argument: `datetime.timedelta` or a number of seconds.
+pub struct Secs(pub std::time::Duration);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for Secs {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(d) = obj.extract::<std::time::Duration>() {
+            return Ok(Secs(d));
+        }
+        let secs: f64 = obj.extract().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err("expected a timedelta or a number of seconds")
+        })?;
+        std::time::Duration::try_from_secs_f64(secs)
+            .map(Secs)
+            .map_err(|_| PyValueError::new_err("duration must be a non-negative number of seconds"))
+    }
+}
+
 /// Python view of `base::TaskMessage`, the protobuf stored under the `msg`
 /// field of every task hash.
 #[pyclass(name = "TaskMessage", module = "pyasynq._core", get_all, set_all, eq)]

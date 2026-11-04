@@ -56,6 +56,53 @@ def client(rdb, redis_addr):
     return pyasynq.Client(f"redis://{redis_addr}/0")
 
 
+FAST = dict(
+    task_check_interval=0.02,
+    delayed_task_check_interval=0.1,
+    heartbeat_interval=0.2,
+    install_signal_handlers=False,
+    shutdown_timeout=2,
+)
+
+
+async def wait_for(predicate, timeout=5.0, interval=0.02):
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    while True:
+        value = predicate()
+        if value:
+            return value
+        if loop.time() > end:
+            raise AssertionError("condition not met in time")
+        await asyncio.sleep(interval)
+
+
+@pytest.fixture
+def make_worker(redis_addr, rdb):
+    """Builds a Worker with fast intervals and runs it as a background task."""
+    import asyncio
+    import contextlib
+
+    import pyasynq
+
+    @contextlib.asynccontextmanager
+    async def run(handler, **options):
+        worker = pyasynq.Worker(handler, redis_url=f"redis://{redis_addr}/0", **{**FAST, **options})
+        task = asyncio.create_task(worker.run())
+        await wait_for(lambda: worker.status == "active" or task.done())
+        if task.done():
+            task.result()
+        try:
+            yield worker
+        finally:
+            worker.shutdown()
+            await task
+
+    return run
+
+
 class GoAsynq:
     """Runs the Go helper in interop/go against the test redis."""
 

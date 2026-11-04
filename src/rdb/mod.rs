@@ -11,6 +11,19 @@ use redis::{AsyncCommands, Script};
 
 use crate::base::{self, TaskMessage};
 
+macro_rules! lua {
+    ($name:ident, $file:literal) => {
+        static $name: std::sync::LazyLock<redis::Script> =
+            std::sync::LazyLock::new(|| redis::Script::new(include_str!(concat!("lua/", $file))));
+    };
+}
+
+mod groups;
+mod scheduler;
+mod worker;
+
+pub use groups::AGGREGATION_TIMEOUT;
+
 static ENQUEUE: LazyLock<Script> = LazyLock::new(|| Script::new(include_str!("lua/enqueue.lua")));
 static ENQUEUE_UNIQUE: LazyLock<Script> =
     LazyLock::new(|| Script::new(include_str!("lua/enqueue_unique.lua")));
@@ -31,7 +44,7 @@ static MARK_AS_COMPLETE_UNIQUE: LazyLock<Script> =
 pub const LEASE_DURATION: Duration = Duration::from_secs(30);
 
 /// Daily processed/failed counters are kept for 90 days.
-const STATS_TTL: Duration = Duration::from_secs(90 * 24 * 60 * 60);
+pub(crate) const STATS_TTL: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -41,6 +54,10 @@ pub enum Error {
     TaskIdConflict,
     #[error("task not found")]
     NotFound,
+    #[error("{0}")]
+    FailedPrecondition(String),
+    #[error("internal error: {0}")]
+    Internal(String),
     #[error("redis error: {0}")]
     Redis(redis::RedisError),
 }
@@ -59,6 +76,7 @@ impl From<redis::RedisError> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct Rdb {
+    client: redis::Client,
     conn: ConnectionManager,
     /// Queues already added to `asynq:queues` by this process, to skip a
     /// round-trip on every enqueue.
@@ -68,8 +86,9 @@ pub struct Rdb {
 impl Rdb {
     pub async fn connect(url: &str) -> Result<Self> {
         let client = redis::Client::open(url)?;
-        let conn = ConnectionManager::new(client).await?;
+        let conn = ConnectionManager::new(client.clone()).await?;
         Ok(Self {
+            client,
             conn,
             queues_published: Mutex::new(HashSet::new()),
         })
@@ -170,9 +189,17 @@ impl Rdb {
     /// order) that is neither paused nor empty, moving it to active and
     /// granting it a lease. Returns the task and its lease expiration.
     pub async fn dequeue(&self, qnames: &[String]) -> Result<Option<(TaskMessage, DateTime<Utc>)>> {
+        self.dequeue_with_lease(qnames, LEASE_DURATION).await
+    }
+
+    pub async fn dequeue_with_lease(
+        &self,
+        qnames: &[String],
+        lease: Duration,
+    ) -> Result<Option<(TaskMessage, DateTime<Utc>)>> {
         let mut conn = self.conn.clone();
         for qname in qnames {
-            let lease_expires_at = Utc::now() + LEASE_DURATION;
+            let lease_expires_at = Utc::now() + lease;
             let encoded: Option<Vec<u8>> = DEQUEUE
                 .key(base::pending_key(qname))
                 .key(base::paused_key(qname))
@@ -183,14 +210,7 @@ impl Rdb {
                 .invoke_async(&mut conn)
                 .await?;
             if let Some(encoded) = encoded {
-                let msg = base::decode_message(&encoded).map_err(|e| {
-                    Error::Redis(redis::RedisError::from((
-                        redis::ErrorKind::Parse,
-                        "cannot decode task message",
-                        e.to_string(),
-                    )))
-                })?;
-                return Ok(Some((msg, lease_expires_at)));
+                return Ok(Some((decode(&encoded)?, lease_expires_at)));
             }
         }
         Ok(None)
@@ -253,11 +273,16 @@ impl Rdb {
     }
 }
 
-fn utc_date(t: DateTime<Utc>) -> String {
+pub(crate) fn decode(data: &[u8]) -> Result<TaskMessage> {
+    base::decode_message(data)
+        .map_err(|e| Error::Internal(format!("cannot decode task message: {e}")))
+}
+
+pub(crate) fn utc_date(t: DateTime<Utc>) -> String {
     t.format("%Y-%m-%d").to_string()
 }
 
-fn stats_expire_at(now: DateTime<Utc>) -> i64 {
+pub(crate) fn stats_expire_at(now: DateTime<Utc>) -> i64 {
     (now + STATS_TTL).timestamp()
 }
 

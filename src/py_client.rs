@@ -7,6 +7,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::client::{self, EnqueueOptions, TaskInfo};
+use crate::py_base::Secs;
 use crate::py_errors::rdb_err;
 use crate::rdb::Rdb;
 use crate::{aio, runtime};
@@ -120,16 +121,21 @@ fn enqueue_request(
     queue: Option<String>,
     max_retry: Option<i32>,
     task_id: Option<String>,
-    timeout: Option<Duration>,
+    timeout: Option<Secs>,
     deadline: Option<DateTime<Utc>>,
-    unique: Option<Duration>,
+    unique: Option<Secs>,
     process_at: Option<DateTime<Utc>>,
-    process_in: Option<Duration>,
-    retention: Option<Duration>,
+    process_in: Option<Secs>,
+    retention: Option<Secs>,
     group: Option<String>,
     headers: Option<HashMap<String, String>>,
 ) -> PyResult<EnqueueRequest> {
-    let process_at = match (process_at, process_in) {
+    let (timeout, unique, retention) = (
+        timeout.map(|s| s.0),
+        unique.map(|s| s.0),
+        retention.map(|s| s.0),
+    );
+    let process_at = match (process_at, process_in.map(|s| s.0)) {
         (Some(_), Some(_)) => {
             return Err(PyValueError::new_err(
                 "pass either process_at or process_in, not both",
@@ -201,12 +207,12 @@ impl PyClient {
         queue: Option<String>,
         max_retry: Option<i32>,
         task_id: Option<String>,
-        timeout: Option<Duration>,
+        timeout: Option<Secs>,
         deadline: Option<DateTime<Utc>>,
-        unique: Option<Duration>,
+        unique: Option<Secs>,
         process_at: Option<DateTime<Utc>>,
-        process_in: Option<Duration>,
-        retention: Option<Duration>,
+        process_in: Option<Secs>,
+        retention: Option<Secs>,
         group: Option<String>,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<PyTaskInfo> {
@@ -233,12 +239,12 @@ impl PyClient {
         queue: Option<String>,
         max_retry: Option<i32>,
         task_id: Option<String>,
-        timeout: Option<Duration>,
+        timeout: Option<Secs>,
         deadline: Option<DateTime<Utc>>,
-        unique: Option<Duration>,
+        unique: Option<Secs>,
         process_at: Option<DateTime<Utc>>,
-        process_in: Option<Duration>,
-        retention: Option<Duration>,
+        process_in: Option<Secs>,
+        retention: Option<Secs>,
         group: Option<String>,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<Bound<'py, PyAny>> {

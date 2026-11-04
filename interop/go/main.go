@@ -6,10 +6,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -70,6 +72,9 @@ func main() {
 	typename := fs.String("type", "email:send", "task type")
 	payload := fs.String("payload", `{"to":"denis@example.com"}`, "task payload")
 	unique := fs.Duration("unique", 0, "uniqueness TTL, e.g. 1h")
+	group := fs.String("group", "", "group key")
+	duration := fs.Duration("duration", 2*time.Second, "how long the worker runs")
+	entry := fs.String("entry", "", "scheduler entry id")
 	fs.Parse(os.Args[2:])
 	redisOpt := asynq.RedisClientOpt{Addr: *addr}
 
@@ -96,7 +101,36 @@ func main() {
 		if *unique > 0 {
 			opts = append(opts, asynq.Unique(*unique))
 		}
+		if *group != "" {
+			opts = append(opts, asynq.Group(*group))
+		}
 		info, err = client.Enqueue(task, opts...)
+	case "servers":
+		inspector := asynq.NewInspector(redisOpt)
+		defer inspector.Close()
+		servers, err := inspector.Servers()
+		emit(servers, err)
+		return
+	case "cancel":
+		inspector := asynq.NewInspector(redisOpt)
+		defer inspector.Close()
+		emit(map[string]bool{"ok": true}, inspector.CancelProcessing(*id))
+		return
+	case "schedulers":
+		inspector := asynq.NewInspector(redisOpt)
+		defer inspector.Close()
+		entries, err := inspector.SchedulerEntries()
+		emit(entries, err)
+		return
+	case "history":
+		inspector := asynq.NewInspector(redisOpt)
+		defer inspector.Close()
+		events, err := inspector.ListSchedulerEnqueueEvents(*entry)
+		emit(events, err)
+		return
+	case "worker":
+		runWorker(redisOpt, *queue, *duration)
+		return
 	case "inspect":
 		inspector := asynq.NewInspector(redisOpt)
 		defer inspector.Close()
@@ -129,3 +163,61 @@ func main() {
 	}
 	json.NewEncoder(os.Stdout).Encode(toJSON(info))
 }
+
+func emit(v any, err error) {
+	if err != nil {
+		v = map[string]string{"error": err.Error()}
+	}
+	json.NewEncoder(os.Stdout).Encode(v)
+}
+
+type handled struct {
+	ID      string            `json:"id"`
+	Type    string            `json:"type"`
+	Payload []byte            `json:"payload"`
+	Headers map[string]string `json:"headers"`
+}
+
+// runWorker processes every task in queue for the given duration with a
+// Go asynq server, failing tasks whose payload is "fail", and prints what
+// it handled.
+func runWorker(redisOpt asynq.RedisClientOpt, queue string, d time.Duration) {
+	var mu sync.Mutex
+	var seen []handled
+	srv := asynq.NewServer(redisOpt, asynq.Config{
+		Concurrency: 4,
+		Queues:      map[string]int{queue: 1},
+		Logger:      quietLogger{},
+		LogLevel:    asynq.ErrorLevel,
+	})
+	h := asynq.HandlerFunc(func(ctx context.Context, t *asynq.Task) error {
+		id, _ := asynq.GetTaskID(ctx)
+		mu.Lock()
+		seen = append(seen, handled{id, t.Type(), t.Payload(), t.Headers()})
+		mu.Unlock()
+		if string(t.Payload()) == "fail" {
+			return fmt.Errorf("go handler failed")
+		}
+		return nil
+	})
+	if err := srv.Start(h); err != nil {
+		emit(nil, err)
+		return
+	}
+	time.Sleep(d)
+	srv.Shutdown()
+	mu.Lock()
+	defer mu.Unlock()
+	if seen == nil {
+		seen = []handled{}
+	}
+	emit(seen, nil)
+}
+
+type quietLogger struct{}
+
+func (quietLogger) Debug(args ...any) {}
+func (quietLogger) Info(args ...any)  {}
+func (quietLogger) Warn(args ...any)  {}
+func (quietLogger) Error(args ...any) {}
+func (quietLogger) Fatal(args ...any) { os.Exit(1) }
