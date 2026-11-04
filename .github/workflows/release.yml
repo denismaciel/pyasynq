@@ -20,7 +20,8 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, target: x86_64, manylinux: auto }
-          - { os: ubuntu-latest, target: aarch64, manylinux: auto }
+          # ring's ARM assembly needs a newer cross gcc than manylinux2014's.
+          - { os: ubuntu-latest, target: aarch64, manylinux: "2_28" }
           - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
           - { os: macos-14, target: x86_64 }
           - { os: macos-14, target: aarch64 }
