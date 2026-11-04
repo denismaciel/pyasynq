@@ -779,7 +779,7 @@ impl PgRdb {
     }
 
     pub async fn subscribe_cancellations(&self) -> Result<Cancellations> {
-        Ok(Cancellations::Postgres(
+        Ok(Cancellations::Channel(
             self.listener().await.cancels.subscribe(),
         ))
     }

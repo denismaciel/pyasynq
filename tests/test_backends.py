@@ -6,10 +6,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import psycopg
 import pyasynq
 import pytest
-import redis
 from conftest import FAST, wait_for
 from pyasynq import Asynq, TaskContext
 from pyasynq._core import Broker
@@ -301,21 +299,9 @@ async def test_deadline_in_the_past_is_archived(app, run_app, inspector):
     assert dead.last_err == "context deadline exceeded"
 
 
-def expire_lease(broker_url, task_id):
-    if broker_url.startswith("redis"):
-        redis.Redis.from_url(broker_url).zadd("asynq:{default}:lease", {task_id: 1})
-    else:
-        with psycopg.connect(broker_url, autocommit=True) as conn:
-            conn.execute(
-                "UPDATE pyasynq_tasks SET lease_expires_at = now() - interval '2 minutes' WHERE id = %s",
-                (task_id,),
-            )
-
-
 async def test_slow_recoverer_leaves_newer_attempt_alone(broker_url, client, inspector):
     info = client.enqueue("work", max_retry=1, retention=60)
-    Broker(broker_url).dequeue("default")
-    expire_lease(broker_url, info.id)
+    Broker(broker_url).dequeue("default", lease=0)
     policy_entered = threading.Event()
     release_policy = threading.Event()
     handler_entered = asyncio.Event()

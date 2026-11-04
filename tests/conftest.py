@@ -113,12 +113,24 @@ def pg_url(postgres_dsn):
     return postgres_dsn
 
 
-@pytest.fixture(params=["redis", "postgres"])
+@pytest.fixture
+def memory_url():
+    """A fresh in-process broker."""
+    from pyasynq import testing
+
+    url = testing.memory_url()
+    yield url
+    testing.reset_memory(url)
+
+
+@pytest.fixture(params=["redis", "postgres", "memory"])
 def broker_url(request):
     """An empty broker of each backend."""
     if request.param == "redis":
         request.getfixturevalue("rdb")
         return f"redis://{request.getfixturevalue('redis_addr')}/0"
+    if request.param == "memory":
+        return request.getfixturevalue("memory_url")
     return request.getfixturevalue("pg_url")
 
 

@@ -2,7 +2,8 @@
 
 `run_task` executes a task in-process (no Redis) through the app's
 middleware, exactly as a worker would. `drain` runs a real worker until
-the queues are empty, for integration tests.
+the queues are empty, for integration tests; with a `memory_url()` broker
+those need no Redis or Postgres either.
 """
 
 from __future__ import annotations
@@ -22,6 +23,18 @@ if TYPE_CHECKING:
 
 _P = TypeVar("_P")
 _R = TypeVar("_R")
+
+
+def memory_url(name: str | None = None) -> str:
+    """A ``memory://`` broker URL: an in-process broker shared by every
+    client, worker and inspector in this process that uses the same URL.
+    Without `name` the broker is a fresh one."""
+    return f"memory://{name or uuid.uuid4()}"
+
+
+def reset_memory(url: str | None = None) -> None:
+    """Empties the in-process broker behind `url`, or every one."""
+    _core.memory_reset(url)
 
 
 class _InlineRunner:

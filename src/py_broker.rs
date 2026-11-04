@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
@@ -6,7 +7,7 @@ use pyo3::prelude::*;
 use crate::base::TaskMessage;
 use crate::py_base::PyTaskMessage;
 use crate::py_errors::rdb_err;
-use crate::rdb::Rdb;
+use crate::rdb::{Rdb, LEASE_DURATION};
 use crate::runtime;
 
 /// Low-level access to the task state transitions the worker performs.
@@ -26,14 +27,17 @@ impl PyBroker {
     }
 
     /// Returns `(message, lease_expires_at)` from the first non-paused,
-    /// non-empty queue, or None.
-    #[pyo3(signature = (*queues))]
+    /// non-empty queue, or None. `lease` is in seconds.
+    #[pyo3(signature = (*queues, lease = None))]
     fn dequeue(
         &self,
         py: Python<'_>,
         queues: Vec<String>,
+        lease: Option<f64>,
     ) -> PyResult<Option<(PyTaskMessage, DateTime<Utc>)>> {
-        let res = runtime::block_on(py, self.rdb.dequeue(&queues)).map_err(rdb_err)?;
+        let lease = lease.map_or(LEASE_DURATION, Duration::from_secs_f64);
+        let res =
+            runtime::block_on(py, self.rdb.dequeue_with_lease(&queues, lease)).map_err(rdb_err)?;
         Ok(res.map(|(msg, lease)| (msg.into(), lease)))
     }
 

@@ -7,6 +7,7 @@ use futures_util::{Stream, StreamExt};
 use tokio::sync::{broadcast, Notify};
 
 use super::inspect::{DailyStats, QueueStats, ServerDetail};
+use super::memory::{is_memory_url, MemoryRdb};
 use super::pg::PgRdb;
 use super::{RedisRdb, Result, LEASE_DURATION};
 use crate::base::{pb, TaskMessage, TaskState};
@@ -15,10 +16,11 @@ use crate::client::TaskInfo;
 enum Backend {
     Redis(RedisRdb),
     Postgres(PgRdb),
+    Memory(MemoryRdb),
 }
 
-/// Task storage, backed by Redis (`redis://`, `rediss://`, `unix://`) or
-/// Postgres (`postgres://`, `postgresql://`).
+/// Task storage, backed by Redis (`redis://`, `rediss://`, `unix://`),
+/// Postgres (`postgres://`, `postgresql://`) or process memory (`memory://`).
 pub struct Rdb {
     backend: Backend,
 }
@@ -26,7 +28,7 @@ pub struct Rdb {
 /// Task IDs published by `Inspector.cancel_processing`.
 pub enum Cancellations {
     Redis(Pin<Box<dyn Stream<Item = redis::Msg> + Send>>),
-    Postgres(broadcast::Receiver<String>),
+    Channel(broadcast::Receiver<String>),
 }
 
 impl Cancellations {
@@ -38,7 +40,7 @@ impl Cancellations {
                     return Some(id);
                 }
             },
-            Cancellations::Postgres(rx) => loop {
+            Cancellations::Channel(rx) => loop {
                 match rx.recv().await {
                     Ok(id) => return Some(id),
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -57,6 +59,8 @@ impl Rdb {
     pub async fn connect(url: &str) -> Result<Self> {
         let backend = if is_postgres_url(url) {
             Backend::Postgres(PgRdb::connect(url).await?)
+        } else if is_memory_url(url) {
+            Backend::Memory(MemoryRdb::connect(url).await?)
         } else {
             Backend::Redis(RedisRdb::connect(url).await?)
         };
@@ -75,7 +79,7 @@ impl Rdb {
     pub fn max_dequeue_batch(&self) -> usize {
         match &self.backend {
             Backend::Redis(_) => 1,
-            Backend::Postgres(_) => 32,
+            Backend::Postgres(_) | Backend::Memory(_) => 32,
         }
     }
 
@@ -93,6 +97,7 @@ impl Rdb {
                 .into_iter()
                 .collect()),
             Backend::Postgres(b) => b.dequeue_batch(qnames, lease, max).await,
+            Backend::Memory(b) => b.dequeue_batch(qnames, lease, max).await,
         }
     }
 
@@ -102,6 +107,7 @@ impl Rdb {
         match &self.backend {
             Backend::Redis(_) => None,
             Backend::Postgres(b) => Some(b.pending_notifier().await),
+            Backend::Memory(b) => Some(b.pending_notifier()),
         }
     }
 }
@@ -115,6 +121,7 @@ macro_rules! delegate {
                     match &self.backend {
                         Backend::Redis(b) => b.$name($($arg),*).await,
                         Backend::Postgres(b) => b.$name($($arg),*).await,
+                        Backend::Memory(b) => b.$name($($arg),*).await,
                     }
                 }
             )*

@@ -144,16 +144,18 @@ pyasynq inspect cancel <task-id>
 **Testing:**
 
 ```python
-from pyasynq.testing import run_task, drain
-assert await run_task(send_email, Email("a@b.c", "hi")) == {"sent": True}  # no Redis
+from pyasynq.testing import run_task, drain, memory_url
+assert await run_task(send_email, Email("a@b.c", "hi")) == {"sent": True}  # no broker
 await drain(app)  # real worker until queues are empty
 ```
+
+For tests that go through a real worker without Redis or Postgres, use an in-process broker: `Asynq(memory_url())` (or any `memory://<name>` URL). Every client, worker, inspector and scheduler in the process that opens the same URL shares one store, and `pyasynq.testing.reset_memory()` empties it. It runs the same conformance suite as the other backends. It doesn't persist anything and can't be shared between processes.
 
 **Low-level API:** `pyasynq.Client` and `pyasynq.Worker(handler)` mirror Go's `Client` and `Server` when you don't want the `Asynq` app layer.
 
 ## Postgres backend
 
-Pass a `postgres://` URL anywhere a Redis URL goes (`Asynq`, `Client`, `Worker(redis_url=...)`, `Inspector`, `Scheduler`, `Semaphore`). The whole API works the same; the test suite runs one conformance suite against both backends.
+Pass a `postgres://` URL anywhere a Redis URL goes (`Asynq`, `Client`, `Worker(redis_url=...)`, `Inspector`, `Scheduler`, `Semaphore`). The whole API works the same; the test suite runs one conformance suite against every backend.
 
 ```python
 app = Asynq("postgresql://app@localhost/app")
@@ -202,7 +204,7 @@ make test   # cargo + pytest (spawns its own redis and postgres; Go interop test
 make lint
 ```
 
-Layout: `src/` holds the Rust engine and pyo3 bindings. `src/rdb/` has the storage layer: the Redis Lua scripts in `src/rdb/lua/` and the Postgres backend and schema in `src/rdb/pg/`. `python/pyasynq/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
+Layout: `src/` holds the Rust engine and pyo3 bindings. `src/rdb/` has the storage layer: the Redis Lua scripts in `src/rdb/lua/` and the Postgres backend and schema in `src/rdb/pg/`, and the in-process backend in `src/rdb/memory.rs`. `python/pyasynq/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
 
 ## License
 

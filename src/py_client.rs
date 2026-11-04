@@ -374,10 +374,18 @@ fn pg_schema() -> String {
     crate::rdb::pg::migration_sql()
 }
 
+/// Drops the in-process store behind a `memory://` URL, or every store.
+#[pyfunction]
+#[pyo3(signature = (url = None))]
+fn memory_reset(url: Option<&str>) {
+    crate::rdb::memory::reset(url);
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyClient>()?;
     m.add_class::<PyTaskInfo>()?;
     m.add_function(wrap_pyfunction!(pg_enqueue_statement, m)?)?;
     m.add_function(wrap_pyfunction!(pg_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(memory_reset, m)?)?;
     Ok(())
 }

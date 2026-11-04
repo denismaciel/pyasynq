@@ -1,7 +1,8 @@
-//! Task storage. [`Rdb`] dispatches to one of two backends chosen by URL:
-//! the Redis port of asynq's `internal/rdb` (every state transition is one
-//! Lua script, wire-compatible with Go asynq) or [`pg::PgRdb`] (one table,
-//! `FOR UPDATE SKIP LOCKED` dequeues and LISTEN/NOTIFY wakeups).
+//! Task storage. [`Rdb`] dispatches to a backend chosen by URL: the Redis
+//! port of asynq's `internal/rdb` (every state transition is one Lua
+//! script, wire-compatible with Go asynq), [`pg::PgRdb`] (one table,
+//! `FOR UPDATE SKIP LOCKED` dequeues and LISTEN/NOTIFY wakeups), or
+//! [`memory::MemoryRdb`] for tests.
 
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -22,6 +23,7 @@ macro_rules! lua {
 mod facade;
 mod groups;
 pub mod inspect;
+pub mod memory;
 pub mod pg;
 pub mod rate;
 mod scheduler;
