@@ -2,9 +2,17 @@
 
 A distributed task queue for Python, backed by Redis or Postgres, with the engine written in Rust.
 
-pyasynq is a port of Go's [asynq](https://github.com/hibiken/asynq) and is **wire-compatible** with it. Python and Go services can enqueue tasks for each other, run workers on the same queues, and use the same tools ([asynqmon](https://github.com/hibiken/asynqmon), the `asynq` CLI).
+pyasynq is a port of Go's [asynq](https://github.com/hibiken/asynq). On Redis it is **wire-compatible** with asynq: Python and Go services can enqueue tasks for each other, run workers on the same queues, and use the same tools ([asynqmon](https://github.com/hibiken/asynqmon), the `asynq` CLI). On [Postgres](#postgres-backend) your tasks live in your application database and can be enqueued inside your own transactions.
 
-Rust (pyo3 + tokio) owns everything that doesn't need to be Python: dequeuing, leases, heartbeats, retries, recovery, scheduling and the Redis Lua scripts. Your handlers are plain Python, either `async def` on the event loop or `def` in a thread pool.
+Rust (pyo3 + tokio) owns everything that doesn't need to be Python: dequeuing, leases, heartbeats, retries, recovery, scheduling and the storage layer (Redis Lua scripts or Postgres queries). Your handlers are plain Python, either `async def` on the event loop or `def` in a thread pool.
+
+## Install
+
+```sh
+pip install pyasynq
+```
+
+Wheels are built for Linux (x86_64, aarch64, musl) and macOS (x86_64, arm64), for Python 3.10 and newer. You need Redis, or Postgres (the test suite runs on Postgres 17).
 
 ## Quick start
 
