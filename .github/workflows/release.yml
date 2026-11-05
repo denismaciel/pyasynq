@@ -35,7 +35,9 @@ jobs:
       # abi3 doesn't cover free-threaded builds; they need their own wheel.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14t"
+          python-version: |
+            3.14t
+            3.13
       - name: Build free-threaded wheel
         uses: PyO3/maturin-action@v1
         with:
@@ -45,7 +47,7 @@ jobs:
       - name: Smoke test
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64' && matrix.manylinux == 'auto' || matrix.os == 'macos-14' && matrix.target == 'aarch64'
         run: |
-          python3 -m venv /tmp/venv
+          python3.13 -m venv /tmp/venv
           /tmp/venv/bin/pip install dist/*abi3*.whl
           /tmp/venv/bin/python -c "import pyasynq; print(pyasynq.__version__)"
           python3.14t -m venv /tmp/venv-ft
