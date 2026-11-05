@@ -10,6 +10,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dynamic = ["version"]
+classifiers = ["Programming Language :: Python :: Free Threading :: 3 - Stable"]
 dependencies = []
 
 [project.optional-dependencies]
@@ -20,18 +21,24 @@ otel = ["opentelemetry-api>=1.25"]
 pyasynq = "pyasynq.cli:main"
 
 [dependency-groups]
-dev = [
-    "mypy>=1.13",
+test = [
     "opentelemetry-sdk>=1.25",
     "prometheus-client>=0.20",
-    "psycopg[binary]>=3.2",
+    "psycopg>=3.2",
     "pydantic>=2",
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "redis>=8.1.0",
+]
+dev = [
+    { include-group = "test" },
+    "mypy>=1.13",
+    "psycopg[binary]>=3.2",
     "ruff>=0.17.3",
     "ty>=0.0.97",
 ]
+# psycopg-binary has no free-threaded wheels; pure psycopg loads libpq itself.
+freethreaded = [{ include-group = "test" }]
 
 [tool.maturin]
 python-source = "python"

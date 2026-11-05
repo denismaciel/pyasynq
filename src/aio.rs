@@ -42,7 +42,7 @@ where
 
 /// Runs on the asyncio thread and resolves the future, unless it was
 /// cancelled in the meantime.
-#[pyclass]
+#[pyclass(frozen)]
 struct SetResult(Mutex<Option<PyResult<Py<PyAny>>>>);
 
 #[pymethods]
@@ -60,7 +60,7 @@ impl SetResult {
     }
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 struct AbortOnCancel(AbortHandle);
 
 #[pymethods]

@@ -1,8 +1,11 @@
 import json
+import os
 import shutil
 import signal
 import socket
 import subprocess
+import sys
+import sysconfig
 import time
 from pathlib import Path
 from typing import Any
@@ -11,6 +14,20 @@ import pytest
 import redis
 
 ROOT = Path(__file__).resolve().parent.parent
+FREE_THREADED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+
+
+def pytest_configure(config):
+    # Forcing the GIL off would hide an extension module that turns it back on.
+    if FREE_THREADED and "0" in (os.environ.get("PYTHON_GIL"), sys._xoptions.get("gil")):
+        raise pytest.UsageError("unset PYTHON_GIL / -X gil=0: the tests check the GIL stays off on its own")
+
+
+@pytest.fixture(autouse=True)
+def _gil_stays_disabled():
+    yield
+    if FREE_THREADED and sys.version_info >= (3, 13):
+        assert not sys._is_gil_enabled(), "the GIL got enabled on free-threaded Python"
 
 
 def _free_port() -> int:

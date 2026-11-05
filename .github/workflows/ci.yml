@@ -24,3 +24,5 @@ jobs:
         run: nix develop -c make lint
       - name: Test (cargo, pytest incl. Go interop)
         run: nix develop -c make test
+      - name: Test on free-threaded Python 3.14t (fails if the GIL turns on)
+        run: nix develop -c make test-ft

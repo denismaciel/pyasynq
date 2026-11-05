@@ -524,6 +524,24 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+freethreaded = [
+    { name = "opentelemetry-sdk" },
+    { name = "prometheus-client" },
+    { name = "psycopg" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "redis" },
+]
+test = [
+    { name = "opentelemetry-sdk" },
+    { name = "prometheus-client" },
+    { name = "psycopg" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "redis" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -537,6 +555,7 @@ dev = [
     { name = "mypy", specifier = ">=1.13" },
     { name = "opentelemetry-sdk", specifier = ">=1.25" },
     { name = "prometheus-client", specifier = ">=0.20" },
+    { name = "psycopg", specifier = ">=3.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pytest", specifier = ">=8" },
@@ -544,6 +563,24 @@ dev = [
     { name = "redis", specifier = ">=8.1.0" },
     { name = "ruff", specifier = ">=0.17.3" },
     { name = "ty", specifier = ">=0.0.97" },
+]
+freethreaded = [
+    { name = "opentelemetry-sdk", specifier = ">=1.25" },
+    { name = "prometheus-client", specifier = ">=0.20" },
+    { name = "psycopg", specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "redis", specifier = ">=8.1.0" },
+]
+test = [
+    { name = "opentelemetry-sdk", specifier = ">=1.25" },
+    { name = "prometheus-client", specifier = ">=0.20" },
+    { name = "psycopg", specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "redis", specifier = ">=8.1.0" },
 ]
 
 [[package]]

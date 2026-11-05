@@ -32,7 +32,10 @@ fn reset_log_cache() {
     }
 }
 
-#[pymodule]
+/// Free-threaded Python keeps the GIL off with this module loaded: every
+/// pyclass is frozen (state behind locks or immutable), and pyo3 requires
+/// them all to be `Sync`.
+#[pymodule(gil_used = false)]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     LOG_RESET.get_or_init(|| pyo3_log::try_init().ok());
     m.add_function(wrap_pyfunction!(version, m)?)?;

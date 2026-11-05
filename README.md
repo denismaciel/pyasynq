@@ -12,7 +12,7 @@ Rust (pyo3 + tokio) owns everything that doesn't need to be Python: dequeuing, l
 pip install pyasynq
 ```
 
-Wheels are built for Linux (x86_64, aarch64, musl) and macOS (x86_64, arm64), for Python 3.10 and newer. You need Redis, or Postgres (the test suite runs on Postgres 17).
+Wheels are built for Linux (x86_64, aarch64, musl) and macOS (x86_64, arm64), for Python 3.10 and newer, plus free-threaded CPython 3.14t, where importing pyasynq keeps the GIL off and sync handlers run in parallel. You need Redis, or Postgres (the test suite runs on Postgres 17).
 
 ## Quick start
 
@@ -212,6 +212,7 @@ Everything you need (Rust, Python, uv, maturin, Redis, Postgres, Go) comes from 
 nix develop
 make dev    # build the Rust extension into .venv
 make test   # cargo + pytest (spawns its own redis and postgres; Go interop tests need go)
+make test-ft  # pytest on free-threaded Python 3.14t in .venv-ft; fails if the GIL turns on
 make lint
 ```
 

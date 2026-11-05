@@ -42,12 +42,12 @@ impl PyBroker {
     }
 
     fn done(&self, py: Python<'_>, msg: PyRef<'_, PyTaskMessage>) -> PyResult<()> {
-        let msg: TaskMessage = msg.clone().into();
+        let msg: TaskMessage = msg.message();
         runtime::block_on(py, self.rdb.done(&msg)).map_err(rdb_err)
     }
 
     fn mark_as_complete(&self, py: Python<'_>, msg: PyRef<'_, PyTaskMessage>) -> PyResult<()> {
-        let msg: TaskMessage = msg.clone().into();
+        let msg: TaskMessage = msg.message();
         runtime::block_on(py, self.rdb.mark_as_complete(&msg)).map_err(rdb_err)
     }
 }

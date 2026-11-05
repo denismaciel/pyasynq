@@ -49,6 +49,9 @@
             ];
 
             RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+            # `make test-ft`: not in `packages`, it would shadow `python3`.
+            FREETHREADED_PYTHON = "${pkgs.python314FreeThreading}/bin/python3.14t";
+            LIBPQ_DIR = "${lib.getLib pkgs.postgresql_17}/lib";
             UV_PYTHON_PREFERENCE = "only-system";
             UV_PYTHON_DOWNLOADS = "never";
           };

@@ -1,4 +1,4 @@
-.PHONY: dev test lint typecheck redis
+.PHONY: dev test test-ft lint typecheck redis
 
 # Compile the Rust extension and install it into .venv (editable).
 dev:
@@ -8,6 +8,17 @@ dev:
 test: dev
 	cargo test
 	uv run --no-sync pytest -q
+
+# The suite on free-threaded CPython in .venv-ft; it fails if the GIL turns
+# on. The dev shell's sysconfig variables are for its own Python, and pure
+# psycopg loads libpq itself.
+FT_ENV = env -u _PYTHON_SYSCONFIGDATA_NAME -u _PYTHON_HOST_PLATFORM -u PYTHONPATH -u PYTHON_GIL \
+	UV_PROJECT_ENVIRONMENT=.venv-ft LD_LIBRARY_PATH=$(LIBPQ_DIR)
+
+test-ft:
+	$(FT_ENV) uv sync -q -p $(FREETHREADED_PYTHON) --no-default-groups --group freethreaded
+	$(FT_ENV) uv run --no-sync maturin develop --uv
+	$(FT_ENV) uv run --no-sync pytest -q
 
 # cargo prefers subcommands in ~/.cargo/bin (rustup) over PATH, so call the
 # dev shell's binaries directly to stay on the flake's toolchain.
