@@ -38,12 +38,20 @@ jobs:
           python-version: |
             3.14t
             3.14
+            3.15t
+            3.15
       - name: Build free-threaded wheel
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           args: --locked --release --out dist -i python3.14t
+      - name: Build Python 3.15 free-threaded wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --locked --release --out dist -i python3.15t
       - name: Smoke test
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64' && matrix.manylinux == 'auto' || startsWith(matrix.os, 'macos-')
         run: |
@@ -53,6 +61,12 @@ jobs:
           python3.14t -m venv /tmp/venv-ft
           /tmp/venv-ft/bin/pip install dist/*cp314t*.whl
           /tmp/venv-ft/bin/python -W error -c "import sys, pyasynq; assert not sys._is_gil_enabled(); print(pyasynq.__version__, 'GIL off')"
+          python3.15 -m venv /tmp/venv-315
+          /tmp/venv-315/bin/pip install dist/*abi3*.whl
+          /tmp/venv-315/bin/python -c "import pyasynq; from pyasynq.testing import memory_url; pyasynq.Asynq(memory_url()); print(pyasynq.__version__)"
+          python3.15t -m venv /tmp/venv-315-ft
+          /tmp/venv-315-ft/bin/pip install dist/*cp315t*.whl
+          /tmp/venv-315-ft/bin/python -W error -c "import sys, pyasynq; assert not sys._is_gil_enabled(); print(pyasynq.__version__, 'GIL off')"
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux }}
