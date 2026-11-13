@@ -11,10 +11,10 @@ Rust (pyo3 + tokio) owns everything that doesn't need to be Python: dequeuing, l
 Releases publish prebuilt wheels on [GitHub Releases](https://github.com/denismaciel/pyasynq/releases), without requiring PyPI. Install the wheel matching your platform; for standard CPython on Linux x86_64 with glibc:
 
 ```sh
-pip install 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.1/pyasynq-0.4.1-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl'
+pip install 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.2/pyasynq-0.4.2-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl'
 ```
 
-Each release includes `SHA256SUMS`. Pin the versioned asset URL and its SHA-256 in your dependency lockfile. Installing a wheel needs neither Git nor a Rust compiler.
+Each release includes `SHA256SUMS` and an `index.html` flat package index with hashed download links for automatic platform selection. Pin the versioned asset URL and its SHA-256 in your dependency lockfile. Installing a wheel needs neither Git nor a Rust compiler.
 
 Wheels are built for Linux (x86_64, aarch64, musl) and macOS (x86_64, arm64), for Python 3.10 and newer, plus free-threaded CPython 3.14t, where importing pyasynq keeps the GIL off and sync handlers run in parallel. You need Redis, or Postgres (the test suite runs on Postgres 17).
 

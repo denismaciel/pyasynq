@@ -23,8 +23,8 @@ jobs:
           # ring's ARM assembly needs a newer cross gcc than manylinux2014's.
           - { os: ubuntu-latest, target: aarch64, manylinux: "2_28" }
           - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
-          - { os: macos-14, target: x86_64 }
-          - { os: macos-14, target: aarch64 }
+          - { os: macos-15-intel, target: x86_64 }
+          - { os: macos-15, target: aarch64 }
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
@@ -45,7 +45,7 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           args: --locked --release --out dist -i python3.14t
       - name: Smoke test
-        if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64' && matrix.manylinux == 'auto' || matrix.os == 'macos-14' && matrix.target == 'aarch64'
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64' && matrix.manylinux == 'auto' || startsWith(matrix.os, 'macos-')
         run: |
           python3.14 -m venv /tmp/venv
           /tmp/venv/bin/pip install dist/*abi3*.whl
@@ -87,6 +87,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           (cd dist && sha256sum -- *.whl *.tar.gz > SHA256SUMS)
+          # A flat package index lets uv select platform/ABI wheels and lock hashes.
+          {
+            printf '<!doctype html><html><body>\n'
+            while read -r checksum filename; do
+              printf '<a href="https://github.com/%s/releases/download/%s/%s#sha256=%s">%s</a><br>\n' \
+                "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$filename" "$checksum" "$filename"
+            done < dist/SHA256SUMS
+            printf '</body></html>\n'
+          } > dist/index.html
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes
           # Never overwrite published artifacts: consumers pin their hashes.
