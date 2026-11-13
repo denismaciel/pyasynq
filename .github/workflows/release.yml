@@ -1,7 +1,7 @@
 name: Release
 
-# Pushing a tag v* builds wheels + sdist, attaches them to the GitHub
-# release and publishes to PyPI (trusted publishing, environment "pypi").
+# Pushing a tag v* builds wheels + sdist and publishes a GitHub release.
+# Packages are installed directly from release assets; no PyPI publication.
 # workflow_dispatch only builds, to check the matrix.
 on:
   push:
@@ -31,25 +31,25 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
-          args: --release --out dist
+          args: --locked --release --out dist
       # abi3 doesn't cover free-threaded builds; they need their own wheel.
       - uses: actions/setup-python@v5
         with:
           python-version: |
             3.14t
-            3.13
+            3.14
       - name: Build free-threaded wheel
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
-          args: --release --out dist -i python3.14t
+          args: --locked --release --out dist -i python3.14t
       - name: Smoke test
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64' && matrix.manylinux == 'auto' || matrix.os == 'macos-14' && matrix.target == 'aarch64'
         run: |
-          python3.13 -m venv /tmp/venv
+          python3.14 -m venv /tmp/venv
           /tmp/venv/bin/pip install dist/*abi3*.whl
-          /tmp/venv/bin/python -c "import pyasynq; print(pyasynq.__version__)"
+          /tmp/venv/bin/python -c "import pyasynq; from pyasynq.testing import memory_url; pyasynq.Asynq(memory_url()); print(pyasynq.__version__)"
           python3.14t -m venv /tmp/venv-ft
           /tmp/venv-ft/bin/pip install dist/*cp314t*.whl
           /tmp/venv-ft/bin/python -W error -c "import sys, pyasynq; assert not sys._is_gil_enabled(); print(pyasynq.__version__, 'GIL off')"
@@ -86,20 +86,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          (cd dist && sha256sum -- *.whl *.tar.gz > SHA256SUMS)
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
-
-  pypi:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [wheels, sdist]
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@release/v1
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes
+          # Never overwrite published artifacts: consumers pin their hashes.
+          gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
