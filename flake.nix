@@ -1,5 +1,5 @@
 {
-  description = "pyasynq: asynq-compatible task queue for Python, powered by Rust";
+  description = "Spater: asynq-compatible task queue for Python, powered by Rust";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   inputs.rust-overlay.url = "github:oxalica/rust-overlay";

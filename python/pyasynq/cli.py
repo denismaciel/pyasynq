@@ -1,10 +1,10 @@
 """Command line: run workers/schedulers for an app, inspect queues.
 
-pyasynq worker myproj.tasks:app -q critical=6 -q default=3 -c 20
-pyasynq worker myproj.tasks:app --processes 4
-pyasynq scheduler myproj.tasks:app
-pyasynq inspect queues
-pyasynq inspect tasks default retry
+spater worker myproj.tasks:app -q critical=6 -q default=3 -c 20
+spater worker myproj.tasks:app --processes 4
+spater scheduler myproj.tasks:app
+spater inspect queues
+spater inspect tasks default retry
 """
 
 from __future__ import annotations
@@ -154,7 +154,7 @@ def cmd_inspect(args: argparse.Namespace, argv: Sequence[str]) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="pyasynq", description=__doc__.split("\n")[0])
+    p = argparse.ArgumentParser(prog="spater", description=__doc__.split("\n")[0])
     p.add_argument("--log-level", default=os.environ.get("PYASYNQ_LOG_LEVEL", "info"))
     sub = p.add_subparsers(dest="command", required=True)
 

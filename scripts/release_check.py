@@ -37,7 +37,7 @@ def main():
         assert args.tag == f"v{version}", f"tag {args.tag!r} must match v{version}"
     if args.version_only:
         return
-    with tempfile.TemporaryDirectory(prefix="pyasynq-release-") as directory:
+    with tempfile.TemporaryDirectory(prefix="spater-release-") as directory:
         work = Path(directory)
         run("uv", "build", "--no-sources", "--out-dir", str(work / "dist"), cwd=ROOT)
         (wheel,) = (work / "dist").glob("*.whl")
@@ -62,9 +62,7 @@ def main():
             "--with",
             str(wheel),
             "python",
-            "-c",
-            "import pyasynq; from pyasynq.testing import memory_url; pyasynq.Asynq(memory_url()); "
-            f"assert pyasynq.__version__ == {version!r}",
+            str(ROOT / "scripts" / "smoke_wheel.py"),
             cwd=work,
         )
         (sdist,) = (work / "dist").glob("*.tar.gz")

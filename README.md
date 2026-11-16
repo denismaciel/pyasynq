@@ -1,8 +1,8 @@
-# pyasynq
+# Spater
 
 A distributed task queue for Python, backed by Redis or Postgres, with the engine written in Rust.
 
-pyasynq is a port of Go's [asynq](https://github.com/hibiken/asynq). On Redis it is **wire-compatible** with asynq: Python and Go services can enqueue tasks for each other, run workers on the same queues, and use the same tools ([asynqmon](https://github.com/hibiken/asynqmon), the `asynq` CLI). On [Postgres](#postgres-backend) your tasks live in your application database and can be enqueued inside your own transactions.
+Spater is a port of Go's [asynq](https://github.com/hibiken/asynq). On Redis it is **wire-compatible** with asynq: Python and Go services can enqueue tasks for each other, run workers on the same queues, and use the same tools ([asynqmon](https://github.com/hibiken/asynqmon), the `asynq` CLI). On [Postgres](#postgres-backend) your tasks live in your application database and can be enqueued inside your own transactions.
 
 Rust (pyo3 + tokio) owns everything that doesn't need to be Python: dequeuing, leases, heartbeats, retries, recovery, scheduling and the storage layer (Redis Lua scripts or Postgres queries). Your handlers are plain Python, either `async def` on the event loop or `def` in a thread pool.
 
@@ -11,13 +11,18 @@ Rust (pyo3 + tokio) owns everything that doesn't need to be Python: dequeuing, l
 Install a published release from PyPI with uv:
 
 ```sh
-uv add pyasynq
+uv add spater
 ```
+
+The distribution and primary command are `spater`. Python imports remain
+`pyasynq`; the `pyasynq` command is retained as a compatibility alias.
+When upgrading an environment that installed the old `pyasynq` distribution,
+remove it before installing `spater` because both provide the same Python package.
 
 Prebuilt wheels are also available on [GitHub Releases](https://github.com/denismaciel/pyasynq/releases). To select the matching wheel from a specific GitHub release:
 
 ```sh
-uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.4/index.html' 'pyasynq==0.4.4'
+uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.4/index.html' 'spater==0.4.4'
 ```
 
 Each release includes `SHA256SUMS` and an `index.html` flat package index with hashed download links for automatic platform selection. Pin the versioned asset URL and its SHA-256 in your dependency lockfile. Installing a wheel needs neither Git nor a Rust compiler.
@@ -55,9 +60,9 @@ result = await send_email.wait_result(info, timeout=10)          # needs retenti
 Run workers and the scheduler:
 
 ```sh
-pyasynq worker tasks:app -q critical=6 -q default=3 -c 20
-pyasynq worker tasks:app --processes 4     # one worker server per process
-pyasynq scheduler tasks:app                # enqueues @app.periodic tasks
+spater worker tasks:app -q critical=6 -q default=3 -c 20
+spater worker tasks:app --processes 4     # one worker server per process
+spater scheduler tasks:app                # enqueues @app.periodic tasks
 ```
 
 ## Typing
@@ -140,15 +145,15 @@ i.get_queue_info("default"); i.list_tasks("default", "retry"); i.pause_queue("de
 ```
 
 ```sh
-pyasynq inspect queues
-pyasynq inspect tasks default retry
-pyasynq inspect cancel <task-id>
+spater inspect queues
+spater inspect tasks default retry
+spater inspect cancel <task-id>
 ```
 
 **Observability:**
 
-- `pyasynq.metrics.QueueMetricsCollector` is a Prometheus collector that uses asynq's metric names. Install with `pip install pyasynq[metrics]`.
-- `pyasynq.otel.instrument(app)` propagates OpenTelemetry trace context through task headers. Install with `pip install pyasynq[otel]`.
+- `pyasynq.metrics.QueueMetricsCollector` is a Prometheus collector that uses asynq's metric names. Install with `uv add "spater[metrics]"`.
+- `pyasynq.otel.instrument(app)` propagates OpenTelemetry trace context through task headers. Install with `uv add "spater[otel]"`.
 - Logs go to Python `logging` under `pyasynq.*`.
 
 **Testing:**
@@ -206,7 +211,7 @@ Trade-offs:
 
 ## Differences from Go asynq
 
-The data format and Redis layout are the same as asynq v0.26. pyasynq fixes a few of asynq's edge cases:
+The data format and Redis layout are the same as asynq v0.26. Spater fixes a few of asynq's edge cases:
 
 - Errors that don't count as failures (`RateLimited`, or `is_failure` returning False) are retried without using up `max_retry`.
 - `timeout` and `retention` under one second raise `ValueError`. Go silently truncates them to 0, which means "unset".
@@ -243,7 +248,7 @@ CI, release builders and the Nix shell use Rust 1.99.0 from `rust-toolchain.toml
 to `uv_build==0.12.4`. Since uv_build itself only supports pure Python, the
 adapter compiles the Rust extension with locked Cargo dependencies, inserts it
 into the wheel, and updates platform/ABI tags and RECORD hashes. Editable sync
-compiles into the source package; rerun `uv sync --reinstall-package pyasynq`
+compiles into the source package; rerun `uv sync --reinstall-package spater`
 after Rust edits. No Maturin or Hatch backend is involved.
 
 Keep `project.version` and `Cargo.toml` version identical. `make release-check
@@ -259,7 +264,7 @@ repaired; they do not claim manylinux portability.
 
 
 Tagged releases also publish the tested wheels and sdist to PyPI. Before the
-first publication, configure PyPI's Trusted Publisher for owner `denismaciel`,
+first publication, configure the `spater` project's PyPI Trusted Publisher for owner `denismaciel`,
 repository `pyasynq`, workflow `release.yml`, and GitHub environment `pypi`.
 Protect that environment with required review and restrict release tag creation
 and modification through repository rules. No long-lived PyPI token is needed.

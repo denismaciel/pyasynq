@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/pyasynq
+      url: https://pypi.org/p/spater
     permissions:
       contents: read
       id-token: write

@@ -5,7 +5,7 @@ import pyasynq
 
 
 def test_version_comes_from_rust():
-    assert pyasynq.version() == version("pyasynq")
+    assert pyasynq.version() == version("spater")
     assert pyasynq.__version__ == pyasynq.version()
 
 
