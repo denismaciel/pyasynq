@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "pyasynq"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1230,6 +1230,7 @@ dependencies = [
  "prost-types",
  "protox",
  "pyo3",
+ "pyo3-build-config",
  "pyo3-log",
  "rand",
  "redis",

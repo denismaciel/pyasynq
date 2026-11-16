@@ -1,6 +1,7 @@
 [build-system]
-requires = ["maturin>=1.7,<2"]
-build-backend = "maturin"
+requires = ["uv_build==0.12.4", "packaging==26.2", "tomli==2.4.0; python_version < '3.11'"]
+build-backend = "build_backend"
+backend-path = ["."]
 
 [project]
 name = "pyasynq"
@@ -9,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dynamic = ["version"]
+version = "0.4.4"
 classifiers = ["Programming Language :: Python :: Free Threading :: 3 - Stable"]
 dependencies = []
 
@@ -40,10 +41,22 @@ dev = [
 # psycopg-binary has no free-threaded wheels; pure psycopg loads libpq itself.
 freethreaded = [{ include-group = "test" }]
 
-[tool.maturin]
-python-source = "python"
+[tool.uv]
+required-version = "==0.12.4"
+cache-keys = [{ file = "pyproject.toml" }, { file = "build_backend.py" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }, { file = "build.rs" }, { file = "src/**/*.rs" }, { file = "proto/**" }]
+
+[tool.uv.build-backend]
+module-root = "python"
+module-name = "pyasynq"
+source-include = ["build_backend.py", "Cargo.toml", "Cargo.lock", "build.rs", "src/**", "proto/**", "rust-toolchain.toml", "scripts/**"]
+source-exclude = ["**/*.so", "**/*.pyd", "**/*.dylib"]
+wheel-exclude = ["**/*.so", "**/*.pyd", "**/*.dylib"]
+
+[tool.native-build]
 module-name = "pyasynq._core"
-features = ["pyo3/extension-module"]
+cargo-library = "_core"
+abi3-minimum = "cp310"
+cargo-features = ["pyo3/extension-module"]
 
 [tool.mypy]
 strict = true
@@ -71,3 +84,18 @@ exclude = ["tests/typing"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.cibuildwheel]
+build = "cp310-* cp314-* cp314t-* cp315-* cp315t-*"
+build-frontend = "uv"
+enable = ["cpython-prerelease"]
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.0"
+environment = { PATH = "$HOME/.cargo/bin:$PATH", CARGO_BUILD_JOBS = "2" }
+test-command = "python -W error {project}/scripts/smoke_wheel.py"
+manylinux-x86_64-image = "manylinux2014"
+manylinux-aarch64-image = "manylinux_2_28"
+musllinux-x86_64-image = "musllinux_1_2"
+
+[tool.cibuildwheel.linux]
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.0 && curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/0.12.4/install.sh | sh"
+environment = { PATH = "$HOME/.local/bin:$HOME/.cargo/bin:$PATH", CARGO_BUILD_JOBS = "2" }

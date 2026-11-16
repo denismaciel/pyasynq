@@ -4,25 +4,39 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_BUILD_JOBS: "2"
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - uses: actions/cache@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          path: |
-            ~/.cargo/registry
-            target
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'interop/go/go.sum', 'uv.lock') }}
-      - name: Lint (clippy, rustfmt, ruff, ty, mypy --strict, stubtest)
-        run: nix develop -c make lint
-      - name: Test (cargo, pytest incl. Go interop)
-        run: nix develop -c make test
-      - name: Test on free-threaded Python 3.14t (fails if the GIL turns on)
-        run: nix develop -c make test-ft
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          enable-cache: false
+          version: "0.12.4"
+          python-version: "3.13"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: "1.26.x"
+          cache: false
+      - name: Install development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server postgresql libpq-dev
+          rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+      - run: make check
+      - run: make test
+      - run: make release-check
+      - name: Free-threaded tests
+        run: |
+          uv python install 3.14t
+          make test-ft FREETHREADED_PYTHON="$(uv python find 3.14t)" LIBPQ_DIR=/usr/lib/x86_64-linux-gnu

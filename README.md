@@ -8,10 +8,16 @@ Rust (pyo3 + tokio) owns everything that doesn't need to be Python: dequeuing, l
 
 ## Install
 
-Releases publish prebuilt wheels on [GitHub Releases](https://github.com/denismaciel/pyasynq/releases), without requiring PyPI. Install the wheel matching your platform; for standard CPython on Linux x86_64 with glibc:
+Install a published release from PyPI with uv:
 
 ```sh
-pip install 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.3/pyasynq-0.4.3-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl'
+uv add pyasynq
+```
+
+Prebuilt wheels are also available on [GitHub Releases](https://github.com/denismaciel/pyasynq/releases). To select the matching wheel from a specific GitHub release:
+
+```sh
+uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.4/index.html' 'pyasynq==0.4.4'
 ```
 
 Each release includes `SHA256SUMS` and an `index.html` flat package index with hashed download links for automatic platform selection. Pin the versioned asset URL and its SHA-256 in your dependency lockfile. Installing a wheel needs neither Git nor a Rust compiler.
@@ -210,14 +216,16 @@ The data format and Redis layout are the same as asynq v0.26. pyasynq fixes a fe
 
 ## Development
 
-Everything you need (Rust, Python, uv, maturin, Redis, Postgres, Go) comes from the Nix dev shell:
+Everything you need (Rust, Python, uv, Redis, Postgres, Go) comes from the Nix dev shell:
 
 ```sh
 nix develop
 make dev    # build the Rust extension into .venv
 make test   # cargo + pytest (spawns its own redis and postgres; Go interop tests need go)
 make test-ft  # pytest on free-threaded Python 3.14t in .venv-ft; fails if the GIL turns on
-make lint
+make check
+make build
+make release-check
 ```
 
 Layout: `src/` holds the Rust engine and pyo3 bindings. `src/rdb/` has the storage layer: the Redis Lua scripts in `src/rdb/lua/` and the Postgres backend and schema in `src/rdb/pg/`, and the in-process backend in `src/rdb/memory.rs`. `python/pyasynq/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
@@ -225,3 +233,50 @@ Layout: `src/` holds the Rust engine and pyo3 bindings. `src/rdb/` has the stora
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+### Packaging and releases
+
+Use uv 0.12.4 (`uv sync --locked`) for development and builds. The Nix shell
+bootstraps that exact uv release through its packaged uv (first use needs network).
+CI, release builders and the Nix shell use Rust 1.99.0 from `rust-toolchain.toml`. The in-tree
+`build_backend.py` delegates Python metadata, source archives and wheel layout
+to `uv_build==0.12.4`. Since uv_build itself only supports pure Python, the
+adapter compiles the Rust extension with locked Cargo dependencies, inserts it
+into the wheel, and updates platform/ABI tags and RECORD hashes. Editable sync
+compiles into the source package; rerun `uv sync --reinstall-package pyasynq`
+after Rust edits. No Maturin or Hatch backend is involved.
+
+Keep `project.version` and `Cargo.toml` version identical. `make release-check
+TAG=vX.Y.Z` checks their agreement, builds and installs a wheel outside the
+checkout, verifies its RECORD, and rebuilds the sdist. The release workflow
+runs full CI on the tagged commit before publication. Manual dispatch only
+builds. Standard CPython wheels retain abi3 (Python 3.10+); free-threaded
+3.14 and 3.15 have separate ABI wheels. cibuildwheel repairs Linux wheels
+inside manylinux/musllinux containers and smoke-tests every wheel on a matching
+native architecture. GitHub releases include immutable artifacts, SHA256SUMS
+and the hashed flat index. Local Linux wheels carry a local Linux tag until
+repaired; they do not claim manylinux portability.
+
+
+Tagged releases also publish the tested wheels and sdist to PyPI. Before the
+first publication, configure PyPI's Trusted Publisher for owner `denismaciel`,
+repository `pyasynq`, workflow `release.yml`, and GitHub environment `pypi`.
+Protect that environment with required review and restrict release tag creation
+and modification through repository rules. No long-lived PyPI token is needed.
+
+Only `vX.Y.Z` tag pushes in the canonical repository can publish. Validation
+requires the tag's commit to be reachable from the current default branch and
+versions to match; full CI and every platform build must pass. Manual dispatch
+never publishes, including dispatch on a tag. GitHub assets are published first;
+the separate `pypi` job then downloads only this run's wheel and sdist artifacts.
+It has only read access to repository contents and OIDC token permission, performs
+no checkout or package build/install, and uses the SHA-pinned official PyPA action
+with PEP 740 attestations. Build/test jobs have no publishing permissions, retain
+no checkout credentials, and disable shared dependency caches.
+
+PyPI files cannot be replaced. If publishing fails after the GitHub release was
+created, rerun the failed PyPI job after resolving its configuration; rerunning
+successful GitHub publication is intentionally rejected. A partial PyPI upload
+requires maintainer investigation: existing files are not silently skipped.
+See [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publisher/)
+and [attestations](https://docs.pypi.org/attestations/producing-attestations/).

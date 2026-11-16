@@ -1,101 +1,120 @@
 name: Release
 
-# Pushing a tag v* builds wheels + sdist and publishes a GitHub release.
-# Packages are installed directly from release assets; no PyPI publication.
+# Canonical v* tag pushes publish tested distributions to GitHub and PyPI.
 # workflow_dispatch only builds, to check the matrix.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          enable-cache: false
+          version: "0.12.4"
+          python-version: "3.13"
+      - name: Require release commit on the default branch
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          git merge-base --is-ancestor HEAD "refs/remotes/origin/$DEFAULT_BRANCH"
+      - name: Validate tag and Cargo/package versions
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            uv run --no-project scripts/release_check.py --version-only --tag "$RELEASE_TAG"
+          else
+            uv run --no-project scripts/release_check.py --version-only
+          fi
+
+  checks:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
   wheels:
-    name: wheel ${{ matrix.os }} ${{ matrix.target }}
+    needs: checks
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64, manylinux: auto }
-          # ring's ARM assembly needs a newer cross gcc than manylinux2014's.
-          - { os: ubuntu-latest, target: aarch64, manylinux: "2_28" }
-          - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
-          - { os: macos-15-intel, target: x86_64 }
-          - { os: macos-15, target: aarch64 }
+          - { os: ubuntu-latest, arch: x86_64 }
+          - { os: ubuntu-24.04-arm, arch: aarch64 }
+          - { os: macos-15-intel, arch: x86_64, deployment: "10.12" }
+          - { os: macos-15, arch: arm64, deployment: "11.0" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          target: ${{ matrix.target }}
-          manylinux: ${{ matrix.manylinux }}
-          args: --locked --release --out dist
-      # abi3 doesn't cover free-threaded builds; they need their own wheel.
-      - uses: actions/setup-python@v5
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
-          python-version: |
-            3.14t
-            3.14
-            3.15t
-            3.15
-      - name: Build free-threaded wheel
-        uses: PyO3/maturin-action@v1
+          enable-cache: false
+          version: "0.12.4"
+          python-version: "3.13"
+      - name: Build, repair and test wheels on native architecture
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_SKIP: "*-musllinux_aarch64"
+          CIBW_ENVIRONMENT_MACOS: 'PATH="$HOME/.cargo/bin:$PATH" CARGO_BUILD_JOBS="2" MACOSX_DEPLOYMENT_TARGET="${{ matrix.deployment }}"'
+        run: uv tool run --from cibuildwheel==4.3.5 --with uv==0.12.4 cibuildwheel --output-dir dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          target: ${{ matrix.target }}
-          manylinux: ${{ matrix.manylinux }}
-          args: --locked --release --out dist -i python3.14t
-      - name: Build Python 3.15 free-threaded wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          manylinux: ${{ matrix.manylinux }}
-          args: --locked --release --out dist -i python3.15t
-      - name: Smoke test
-        if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64' && matrix.manylinux == 'auto' || startsWith(matrix.os, 'macos-')
-        run: |
-          python3.14 -m venv /tmp/venv
-          /tmp/venv/bin/pip install dist/*abi3*.whl
-          /tmp/venv/bin/python -c "import pyasynq; from pyasynq.testing import memory_url; pyasynq.Asynq(memory_url()); print(pyasynq.__version__)"
-          python3.14t -m venv /tmp/venv-ft
-          /tmp/venv-ft/bin/pip install dist/*cp314t*.whl
-          /tmp/venv-ft/bin/python -W error -c "import sys, pyasynq; assert not sys._is_gil_enabled(); print(pyasynq.__version__, 'GIL off')"
-          python3.15 -m venv /tmp/venv-315
-          /tmp/venv-315/bin/pip install dist/*abi3*.whl
-          /tmp/venv-315/bin/python -c "import pyasynq; from pyasynq.testing import memory_url; pyasynq.Asynq(memory_url()); print(pyasynq.__version__)"
-          python3.15t -m venv /tmp/venv-315-ft
-          /tmp/venv-315-ft/bin/pip install dist/*cp315t*.whl
-          /tmp/venv-315-ft/bin/python -W error -c "import sys, pyasynq; assert not sys._is_gil_enabled(); print(pyasynq.__version__, 'GIL off')"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheel-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux }}
-          path: dist
+          name: wheel-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*.whl
+          if-no-files-found: error
 
   sdist:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          command: sdist
-          args: --out dist
-      - uses: actions/upload-artifact@v4
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          enable-cache: false
+          version: "0.12.4"
+          python-version: "3.13"
+      - run: uv build --sdist --no-sources
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sdist
-          path: dist
+          path: dist/*.tar.gz
+          if-no-files-found: error
 
   github-release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.repository == 'denismaciel/pyasynq' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
+          pattern: wheel-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: sdist
+          path: dist
       - name: Attach to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,8 +129,38 @@ jobs:
             done < dist/SHA256SUMS
             printf '</body></html>\n'
           } > dist/index.html
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; immutable artifacts cannot be replaced" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes
           # Never overwrite published artifacts: consumers pin their hashes.
           gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+
+  publish-pypi:
+    if: github.repository == 'denismaciel/pyasynq' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: [validate, checks, wheels, sdist, github-release]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyasynq
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Defaults intentionally select this run only. No checkout or project execution.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: sdist
+          path: dist
+      - name: Publish with PyPI Trusted Publishing and attestations
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist/
+          attestations: true

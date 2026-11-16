@@ -920,7 +920,7 @@ impl MemoryRdb {
         let mut d = self.data();
         let events = d.scheduler_events.entry(entry_id.to_string()).or_default();
         events.push((enqueued_at, event));
-        events.sort_by(|a, b| b.0.cmp(&a.0));
+        events.sort_by_key(|event| std::cmp::Reverse(event.0));
         events.truncate(MAX_EVENTS as usize);
         Ok(())
     }

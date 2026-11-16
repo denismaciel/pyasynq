@@ -2,9 +2,11 @@
   description = "pyasynq: asynq-compatible task queue for Python, powered by Rust";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+  inputs.rust-overlay.url = "github:oxalica/rust-overlay";
+  inputs.rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, rust-overlay }:
     let
       lib = nixpkgs.lib;
       systems = [
@@ -19,23 +21,26 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ rust-overlay.overlays.default ];
+          };
+          rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           python = pkgs.python313;
+          pinnedUv = pkgs.writeShellScriptBin "uv" ''
+            exec ${pkgs.uv}/bin/uv tool run --from uv==0.12.4 uv "$@"
+          '';
         in
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
               # rust
-              cargo
-              rustc
-              rustfmt
-              clippy
+              rustToolchain
               rust-analyzer
-              maturin
 
               # python
               python
-              uv
+              pinnedUv
 
               # go asynq, for cross-language tests
               go
@@ -48,7 +53,7 @@
               pkg-config
             ];
 
-            RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+            RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
             # `make test-ft`: not in `packages`, it would shadow `python3`.
             FREETHREADED_PYTHON = "${pkgs.python314FreeThreading}/bin/python3.14t";
             LIBPQ_DIR = "${lib.getLib pkgs.postgresql_17}/lib";
