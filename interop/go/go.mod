@@ -1,4 +1,4 @@
-module github.com/denismaciel/pyasynq/interop
+module github.com/denismaciel/spater/interop
 
 go 1.25.10
 

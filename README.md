@@ -18,10 +18,10 @@ The distribution, Python import, and CLI are `spater`. Old module and command
 aliases are removed. Existing PostgreSQL storage identifiers stay stable so
 upgrading does not lose queued tasks.
 
-Prebuilt wheels are also available on [GitHub Releases](https://github.com/denismaciel/pyasynq/releases). To select the matching wheel from a specific GitHub release:
+Prebuilt wheels are also available on [GitHub Releases](https://github.com/denismaciel/spater/releases). To select the matching wheel from a specific GitHub release:
 
 ```sh
-uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.5.0/index.html' 'spater==0.5.0'
+uv pip install --no-index --find-links 'https://github.com/denismaciel/spater/releases/download/v0.5.1/index.html' 'spater==0.5.1'
 ```
 
 Each release includes `SHA256SUMS` and an `index.html` flat package index with hashed download links for automatic platform selection. Pin the versioned asset URL and its SHA-256 in your dependency lockfile. Installing a wheel needs neither Git nor a Rust compiler.

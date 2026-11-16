@@ -100,7 +100,7 @@ jobs:
           if-no-files-found: error
 
   github-release:
-    if: github.repository == 'denismaciel/pyasynq' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    if: github.repository == 'denismaciel/spater' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: [checks, wheels, sdist]
     runs-on: ubuntu-latest
     permissions:
@@ -139,7 +139,7 @@ jobs:
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
 
   publish-pypi:
-    if: github.repository == 'denismaciel/pyasynq' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    if: github.repository == 'denismaciel/spater' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: [validate, checks, wheels, sdist, github-release]
     runs-on: ubuntu-latest
     environment:
