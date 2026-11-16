@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .thread_name("pyasynq-tokio")
+        .thread_name("spater-tokio")
         .build()
         .expect("failed to start tokio runtime")
 });

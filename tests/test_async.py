@@ -3,8 +3,8 @@ import threading
 from datetime import timedelta
 
 import pytest
-from pyasynq import DuplicateTaskError
-from pyasynq._core import pending_key
+from spater import DuplicateTaskError
+from spater._core import pending_key
 
 
 class Ticker:

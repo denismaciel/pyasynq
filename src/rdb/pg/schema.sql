@@ -1,4 +1,4 @@
--- pyasynq Postgres schema, version 1. Applied automatically on connect.
+-- spater Postgres schema, version 1. Applied automatically on connect.
 
 CREATE TABLE pyasynq_queues (
     name text PRIMARY KEY,

@@ -8,7 +8,7 @@ create_exception!(
     _core,
     AsynqError,
     PyException,
-    "Base class for pyasynq errors."
+    "Base class for spater errors."
 );
 create_exception!(
     _core,

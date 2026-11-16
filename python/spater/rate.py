@@ -16,9 +16,9 @@ from __future__ import annotations
 import contextlib
 from collections.abc import AsyncGenerator, Generator
 
-from pyasynq import _core
-from pyasynq.context import TaskContext
-from pyasynq.errors import RateLimited
+from spater import _core
+from spater.context import TaskContext
+from spater.errors import RateLimited
 
 
 class Semaphore(_core.Semaphore):

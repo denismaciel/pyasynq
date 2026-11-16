@@ -6,11 +6,11 @@ import json
 import threading
 from dataclasses import dataclass, field
 
-import pyasynq
 import pydantic
 import pytest
+import spater
 from conftest import FAST, wait_for
-from pyasynq import Asynq, TaskContext
+from spater import Asynq, TaskContext
 
 
 @dataclass
@@ -47,7 +47,7 @@ async def test_typed_payloads_and_results(app, run_app):
 
     @app.task("invoice:render", retention=60)
     def render(inv: Invoice) -> Invoice:
-        assert threading.current_thread().name.startswith("pyasynq-task")
+        assert threading.current_thread().name.startswith("spater-task")
         return Invoice(number=inv.number, amount=inv.amount * 2)
 
     @app.task(retention=60)
@@ -87,7 +87,7 @@ async def test_bad_payload_is_archived(app, run_app, client, rdb):
     info = client.enqueue("typed", b"not json")
     async with run_app(app):
         await wait_for(lambda: task_hash(rdb, info).get(b"state") == b"archived")
-    msg = pyasynq.TaskMessage.decode(task_hash(rdb, info)[b"msg"])
+    msg = spater.TaskMessage.decode(task_hash(rdb, info)[b"msg"])
     assert msg.error_msg.startswith("SkipRetry: cannot decode payload")
 
 
@@ -95,7 +95,7 @@ async def test_unknown_task_type_is_retried(app, run_app, client, rdb):
     info = client.enqueue("nobody:handles")
     async with run_app(app):
         await wait_for(lambda: task_hash(rdb, info).get(b"state") == b"retry")
-    msg = pyasynq.TaskMessage.decode(task_hash(rdb, info)[b"msg"])
+    msg = spater.TaskMessage.decode(task_hash(rdb, info)[b"msg"])
     assert msg.error_msg == "HandlerNotFound: handler not found for task 'nobody:handles'"
 
 
@@ -106,7 +106,7 @@ async def test_wait_result_raises_when_archived(app, run_app):
 
     info = await fails.aenqueue()
     async with run_app(app):
-        with pytest.raises(pyasynq.TaskFailed, match="RuntimeError: no luck"):
+        with pytest.raises(spater.TaskFailed, match="RuntimeError: no luck"):
             await app.wait_result(info, timeout=5)
 
 
@@ -178,7 +178,7 @@ async def test_group_aggregation(app, run_app, rdb):
         batches.append((ctx.queue, sorted(users)))
 
     @app.group_aggregator
-    def combine(group: str, tasks: list[pyasynq.Task]) -> pyasynq.Task:
+    def combine(group: str, tasks: list[spater.Task]) -> spater.Task:
         users = [json.loads(t.payload) for t in tasks]
         return notify_batch.task(users)
 

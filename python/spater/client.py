@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pyasynq import _core
+from spater import _core
 
 if TYPE_CHECKING:
     from typing_extensions import Unpack
 
-    from pyasynq.options import EnqueueOptions
+    from spater.options import EnqueueOptions
 
 
 class Client(_core.Client):

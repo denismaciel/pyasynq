@@ -32,7 +32,7 @@ impl FailurePolicy for PyPolicy {
         match res {
             Ok((secs, is_failure)) => (Duration::from_secs_f64(secs.max(0.0)), is_failure),
             Err(e) => {
-                log::error!(target: "pyasynq.worker", "failure policy raised: {e}; using default");
+                log::error!(target: "spater.worker", "failure policy raised: {e}; using default");
                 (default_retry_delay(msg.retried), true)
             }
         }
@@ -82,8 +82,8 @@ fn secs(v: f64, name: &str) -> PyResult<Duration> {
 }
 
 /// The Rust worker engine. Python drives it: start it, pull events, ack
-/// jobs, shut it down. See `pyasynq.worker` for the user-facing API.
-#[pyclass(name = "Engine", module = "pyasynq._core", frozen, subclass)]
+/// jobs, shut it down. See `spater.worker` for the user-facing API.
+#[pyclass(name = "Engine", module = "spater._core", frozen, subclass)]
 pub struct PyEngine {
     engine: Arc<Engine>,
 }

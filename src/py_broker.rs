@@ -12,7 +12,7 @@ use crate::runtime;
 
 /// Low-level access to the task state transitions the worker performs.
 /// Not part of the public API; used by tests and for exploring.
-#[pyclass(name = "Broker", module = "pyasynq._core", frozen)]
+#[pyclass(name = "Broker", module = "spater._core", frozen)]
 pub struct PyBroker {
     rdb: Arc<Rdb>,
 }

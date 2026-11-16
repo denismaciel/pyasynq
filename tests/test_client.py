@@ -3,8 +3,8 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from pyasynq import DuplicateTaskError, TaskIDConflictError
-from pyasynq._core import ALL_QUEUES, queue_key_prefix, task_key
+from spater import DuplicateTaskError, TaskIDConflictError
+from spater._core import ALL_QUEUES, queue_key_prefix, task_key
 
 
 def test_enqueue_defaults_match_go(client, rdb, go_asynq):

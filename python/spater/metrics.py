@@ -13,9 +13,9 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from pyasynq.inspector import Inspector
+from spater.inspector import Inspector
 
-log = logging.getLogger("pyasynq.metrics")
+log = logging.getLogger("spater.metrics")
 
 NAMESPACE = "asynq"
 _STATES = ("active", "pending", "scheduled", "retry", "archived", "completed", "aggregating")

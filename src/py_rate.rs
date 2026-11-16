@@ -10,7 +10,7 @@ use crate::rdb::Rdb;
 use crate::runtime;
 
 /// Redis-backed counting semaphore shared by all workers (asynq `x/rate`).
-#[pyclass(name = "Semaphore", module = "pyasynq._core", frozen, subclass)]
+#[pyclass(name = "Semaphore", module = "spater._core", frozen, subclass)]
 pub struct PySemaphore {
     rdb: Arc<Rdb>,
     #[pyo3(get)]

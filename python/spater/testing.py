@@ -1,4 +1,4 @@
-"""Helpers for testing code that uses pyasynq.
+"""Helpers for testing code that uses spater.
 
 `run_task` executes a task in-process (no Redis) through the app's
 middleware, exactly as a worker would. `drain` runs a real worker until
@@ -14,12 +14,12 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from pyasynq import _core
-from pyasynq.app import Asynq, TaskDef
-from pyasynq.context import TaskContext, _current
+from spater import _core
+from spater.app import Asynq, TaskDef
+from spater.context import TaskContext, _current
 
 if TYPE_CHECKING:
-    from pyasynq.worker import Worker
+    from spater.worker import Worker
 
 _P = TypeVar("_P")
 _R = TypeVar("_R")

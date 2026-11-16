@@ -3,7 +3,7 @@
 import base64
 import time
 
-from pyasynq._core import ALL_QUEUES, TaskMessage, pending_key, task_key
+from spater._core import ALL_QUEUES, TaskMessage, pending_key, task_key
 
 
 def test_decode_task_written_by_go(rdb, go_asynq):

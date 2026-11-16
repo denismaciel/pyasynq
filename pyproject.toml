@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-version = "0.4.5"
+version = "0.5.0"
 classifiers = ["Programming Language :: Python :: Free Threading :: 3 - Stable"]
 dependencies = []
 
@@ -19,8 +19,7 @@ metrics = ["prometheus-client>=0.20"]
 otel = ["opentelemetry-api>=1.25"]
 
 [project.scripts]
-spater = "pyasynq.cli:main"
-pyasynq = "pyasynq.cli:main"
+spater = "spater.cli:main"
 
 [dependency-groups]
 test = [
@@ -48,13 +47,13 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "build_backend.py" }, { file
 
 [tool.uv.build-backend]
 module-root = "python"
-module-name = "pyasynq"
+module-name = "spater"
 source-include = ["build_backend.py", "Cargo.toml", "Cargo.lock", "build.rs", "src/**", "proto/**", "rust-toolchain.toml", "scripts/**"]
 source-exclude = ["**/*.so", "**/*.pyd", "**/*.dylib"]
 wheel-exclude = ["**/*.so", "**/*.pyd", "**/*.dylib"]
 
 [tool.native-build]
-module-name = "pyasynq._core"
+module-name = "spater._core"
 cargo-library = "_core"
 abi3-minimum = "cp310"
 cargo-features = ["pyo3/extension-module"]
@@ -62,7 +61,7 @@ cargo-features = ["pyo3/extension-module"]
 [tool.mypy]
 strict = true
 python_version = "3.10"
-files = ["python/pyasynq", "tests/typing"]
+files = ["python/spater", "tests/typing"]
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]

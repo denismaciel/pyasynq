@@ -6,12 +6,12 @@ from collections import Counter
 from dataclasses import dataclass
 
 import psycopg
-import pyasynq
 import pytest
+import spater
 from conftest import wait_for
-from pyasynq import Asynq
-from pyasynq.inspector import Inspector
-from pyasynq.postgres import enqueue_statement, schema_sql
+from spater import Asynq
+from spater.inspector import Inspector
+from spater.postgres import enqueue_statement, schema_sql
 
 
 @dataclass
@@ -70,7 +70,7 @@ def test_enqueue_statement_options(pg_url):
     assert stmt.info.state == "scheduled"
     grouped = enqueue_statement("t", group="g")
     assert grouped.info.state == "aggregating"
-    pyasynq.Client(pg_url)  # creates the schema
+    spater.Client(pg_url)  # creates the schema
     with psycopg.connect(pg_url) as conn:
         conn.execute(grouped.sql, grouped.params)
     assert Inspector(pg_url).groups("default") == {"g": 1}
@@ -90,7 +90,7 @@ async def test_competing_workers_process_each_task_once(pg_url, run_app):
             counts[n] += 1
             await asyncio.sleep(0.001)
 
-    client = pyasynq.Client(pg_url)
+    client = spater.Client(pg_url)
     for n in range(300):
         await client.aenqueue("job", str(n).encode(), headers={"content-type": "application/json"})
     async with run_app(apps[0], concurrency=10), run_app(apps[1], concurrency=10), run_app(apps[2], concurrency=10):
@@ -103,22 +103,22 @@ async def test_competing_workers_process_each_task_once(pg_url, run_app):
 def test_schema_applied_externally(pg_url):
     with psycopg.connect(pg_url, autocommit=True) as conn:
         conn.execute(schema_sql())
-        pyasynq.Client(pg_url).enqueue("t")
-        pyasynq.Client(pg_url)
+        spater.Client(pg_url).enqueue("t")
+        spater.Client(pg_url)
         versions = conn.execute("SELECT version FROM pyasynq_schema_version ORDER BY version").fetchall()
     assert versions == [(1,), (2,)]
 
 
 def test_migrates_older_schema_on_connect(pg_url):
-    pyasynq.Client(pg_url)
+    spater.Client(pg_url)
     with psycopg.connect(pg_url, autocommit=True) as conn:
         conn.execute("DELETE FROM pyasynq_schema_version WHERE version > 1")
-        pyasynq.Client(pg_url).enqueue("t")
+        spater.Client(pg_url).enqueue("t")
         versions = conn.execute("SELECT version FROM pyasynq_schema_version ORDER BY version").fetchall()
     assert versions == [(1,), (2,)]
 
 
 def test_bad_url_raises_broker_error():
-    with pytest.raises(pyasynq.PostgresError) as e:
-        pyasynq.Client("postgresql://nobody@127.0.0.1:1/db")
-    assert isinstance(e.value, pyasynq.BrokerError)
+    with pytest.raises(spater.PostgresError) as e:
+        spater.Client("postgresql://nobody@127.0.0.1:1/db")
+    assert isinstance(e.value, spater.BrokerError)

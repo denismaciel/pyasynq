@@ -6,18 +6,18 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import pyasynq
 import pytest
+import spater
 from conftest import FAST, wait_for
-from pyasynq import Asynq, TaskContext
-from pyasynq._core import Broker
-from pyasynq.inspector import Inspector
-from pyasynq.rate import RateLimited, Semaphore
+from spater import Asynq, TaskContext
+from spater._core import Broker
+from spater.inspector import Inspector
+from spater.rate import RateLimited, Semaphore
 
 
 @pytest.fixture
 def client(broker_url):
-    return pyasynq.Client(broker_url)
+    return spater.Client(broker_url)
 
 
 @pytest.fixture
@@ -51,26 +51,26 @@ def test_enqueue_states_and_listing(client, inspector):
 
     info = inspector.get_task_info("default", p2.id)
     assert (info.type, info.payload, info.state) == ("a", b"2", "pending")
-    with pytest.raises(pyasynq.TaskNotFoundError):
+    with pytest.raises(spater.TaskNotFoundError):
         inspector.get_task_info("default", "missing")
-    with pytest.raises(pyasynq.QueueNotFoundError):
+    with pytest.raises(spater.QueueNotFoundError):
         inspector.get_task_info("nope", p1.id)
 
 
 def test_conflicts_and_uniqueness(client):
     client.enqueue("a", task_id="x")
-    with pytest.raises(pyasynq.TaskIDConflictError):
+    with pytest.raises(spater.TaskIDConflictError):
         client.enqueue("a", task_id="x")
     client.enqueue("a", task_id="x", queue="other")  # IDs are unique per queue
 
     client.enqueue("u", b"same", unique=60)
-    with pytest.raises(pyasynq.DuplicateTaskError):
+    with pytest.raises(spater.DuplicateTaskError):
         client.enqueue("u", b"same", unique=60)
-    with pytest.raises(pyasynq.DuplicateTaskError):
+    with pytest.raises(spater.DuplicateTaskError):
         client.enqueue("u", b"same", unique=60, process_in=10)
     client.enqueue("u", b"other", unique=60)
     # An ID conflict wins over the uniqueness lock, and doesn't steal it.
-    with pytest.raises(pyasynq.TaskIDConflictError):
+    with pytest.raises(spater.TaskIDConflictError):
         client.enqueue("u", b"third", unique=60, task_id="x")
     client.enqueue("u", b"third", unique=60)
 
@@ -81,16 +81,16 @@ def test_task_operations(client, inspector):
     assert inspector.get_task_info("default", t.id).payload == b"new"
     inspector.run_task("default", t.id)
     assert inspector.get_task_info("default", t.id).state == "pending"
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.run_task("default", t.id)
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.update_task_payload("default", t.id, b"x")
     inspector.archive_task("default", t.id)
     assert inspector.get_task_info("default", t.id).state == "archived"
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.archive_task("default", t.id)
     inspector.delete_task("default", t.id)
-    with pytest.raises(pyasynq.TaskNotFoundError):
+    with pytest.raises(spater.TaskNotFoundError):
         inspector.delete_task("default", t.id)
 
 
@@ -110,7 +110,7 @@ def test_bulk_operations(client, inspector):
     assert inspector.run_all_tasks("default", "archived") == 3
     assert inspector.run_all_tasks("default", "aggregating", group="grp") == 2
     assert inspector.get_queue_info("default").pending == 5
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.run_all_tasks("default", "aggregating")
     assert inspector.delete_all_tasks("default", "pending") == 5
     assert inspector.get_queue_info("default").size == 0
@@ -121,11 +121,11 @@ def test_bulk_operations(client, inspector):
 def test_delete_queue(client, inspector):
     client.enqueue("a")
     client.enqueue("b", group="g")
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.delete_queue("default")
     inspector.delete_queue("default", force=True)
     assert inspector.queues() == []
-    with pytest.raises(pyasynq.QueueNotFoundError):
+    with pytest.raises(spater.QueueNotFoundError):
         inspector.get_queue_info("default")
     client.enqueue("a")
     assert inspector.get_queue_info("default").size == 1
@@ -135,10 +135,10 @@ def test_pause(client, inspector):
     client.enqueue("a")
     inspector.pause_queue("default")
     assert inspector.get_queue_info("default").paused
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.pause_queue("default")
     inspector.unpause_queue("default")
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.unpause_queue("default")
 
 
@@ -203,7 +203,7 @@ async def test_group_aggregation(app, run_app, inspector):
         batches.append(sorted(users))
 
     @app.group_aggregator
-    def combine(group: str, tasks: list[pyasynq.Task]) -> pyasynq.Task:
+    def combine(group: str, tasks: list[spater.Task]) -> spater.Task:
         return notify_batch.task([json.loads(t.payload) for t in tasks])
 
     for user in ["ann", "bob", "cid", "dan", "eve"]:
@@ -259,7 +259,7 @@ async def test_scheduler(app, inspector):
 
 
 async def test_semaphore(broker_url):
-    from pyasynq.testing import make_context
+    from spater.testing import make_context
 
     sema = Semaphore(broker_url, "api", max_tokens=1)
     a, b = make_context(), make_context()
@@ -281,7 +281,7 @@ async def test_janitor_deletes_expired_completed(app, run_app, inspector):
     async with run_app(app, janitor_interval=0.2):
         await wait_for(lambda: inspector.get_queue_info("default").completed == 1, timeout=5)
         await wait_for(lambda: inspector.get_queue_info("default").completed == 0, timeout=5)
-    with pytest.raises(pyasynq.TaskNotFoundError):
+    with pytest.raises(spater.TaskNotFoundError):
         inspector.get_task_info("default", info.id)
 
 
@@ -317,8 +317,8 @@ async def test_slow_recoverer_leaves_newer_attempt_alone(broker_url, client, ins
         await release_handler.wait()
 
     opts: dict[str, Any] = {**FAST, "recoverer_interval": 100, "recoverer_skew": 0, "shutdown_timeout": 0.1}
-    slow = pyasynq.Worker(handler, redis_url=broker_url, retry_delay=slow_policy, **opts)
-    fast = pyasynq.Worker(handler, redis_url=broker_url, retry_delay=lambda *_: 0, **opts)
+    slow = spater.Worker(handler, redis_url=broker_url, retry_delay=slow_policy, **opts)
+    fast = spater.Worker(handler, redis_url=broker_url, retry_delay=lambda *_: 0, **opts)
     slow_run = asyncio.create_task(slow.run())
     fast_run = None
     try:

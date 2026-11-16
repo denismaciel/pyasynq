@@ -22,9 +22,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, overload
 
-from pyasynq import _core
-from pyasynq.context import TaskContext, _current
-from pyasynq.errors import (
+from spater import _core
+from spater.context import TaskContext, _current
+from spater.errors import (
     DeadlineExceeded,
     LeaseExpired,
     RedisError,
@@ -34,9 +34,9 @@ from pyasynq.errors import (
     TaskCanceled,
     error_message,
 )
-from pyasynq.task import Task
+from spater.task import Task
 
-log = logging.getLogger("pyasynq.worker")
+log = logging.getLogger("spater.worker")
 
 DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0"
 
@@ -197,7 +197,7 @@ class Worker:
         self._shutdown_requested = asyncio.Event()
         await self._engine._astart()
         installed = self._add_signal_handlers()
-        pump = self.loop.create_task(self._pump(), name="pyasynq-pump")
+        pump = self.loop.create_task(self._pump(), name="spater-pump")
         try:
             await self._shutdown_requested.wait()
         finally:
@@ -249,7 +249,7 @@ class Worker:
         if self._pool is None:
             with self._pool_lock:
                 if self._pool is None:
-                    self._pool = ThreadPoolExecutor(max_workers=self._pool_size, thread_name_prefix="pyasynq-task")
+                    self._pool = ThreadPoolExecutor(max_workers=self._pool_size, thread_name_prefix="spater-task")
         ctx = contextvars.copy_context()
         return await self.loop.run_in_executor(self._pool, ctx.run, fn, *args)
 
@@ -298,7 +298,7 @@ class Worker:
         if deadline <= datetime.now(timezone.utc):
             self._spawn(self._fail(exec, ctx, DeadlineExceeded()))
             return
-        task = self.loop.create_task(self._invoke(ctx), name=f"pyasynq:{msg.type}:{msg.id}")
+        task = self.loop.create_task(self._invoke(ctx), name=f"spater:{msg.type}:{msg.id}")
         self._jobs[exec] = _Job(exec, ctx, task)
         task.add_done_callback(functools.partial(self._on_done, exec))
 
@@ -393,7 +393,7 @@ class Worker:
     # -- groups ----------------------------------------------------------------
 
     async def _aggregate(self, queue: str, group: str, set_id: str, msgs: list[_core.TaskMessage]) -> None:
-        from pyasynq.client import Client
+        from spater.client import Client
 
         assert self._group_aggregator is not None
         tasks = [Task(m.type, bytes(m.payload), dict(m.headers)) for m in msgs]

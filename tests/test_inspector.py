@@ -3,9 +3,9 @@
 import asyncio
 from datetime import timedelta
 
-import pyasynq
 import pytest
-from pyasynq.inspector import Inspector
+import spater
+from spater.inspector import Inspector
 
 
 @pytest.fixture
@@ -38,14 +38,14 @@ def test_task_operations(client, inspector, go_asynq):
     t = client.enqueue("a", process_in=3600)
     inspector.run_task("default", t.id)
     assert inspector.get_task_info("default", t.id).state == "pending"
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.run_task("default", t.id)
     inspector.archive_task("default", t.id)
     assert go_asynq("inspect", queue="default", id=t.id)["state"] == "archived"
     inspector.delete_task("default", t.id)
-    with pytest.raises(pyasynq.TaskNotFoundError):
+    with pytest.raises(spater.TaskNotFoundError):
         inspector.get_task_info("default", t.id)
-    with pytest.raises(pyasynq.QueueNotFoundError):
+    with pytest.raises(spater.QueueNotFoundError):
         inspector.get_task_info("nope", t.id)
 
 
@@ -66,7 +66,7 @@ def test_pause_blocks_processing(client, inspector, go_asynq):
     client.enqueue("a")
     inspector.pause_queue("default")
     assert go_asynq("queue", queue="default")["Paused"] is True
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.pause_queue("default")
     inspector.unpause_queue("default")
     assert inspector.get_queue_info("default").paused is False

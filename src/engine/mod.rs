@@ -7,7 +7,7 @@
 //! holding the GIL call `ack`, which takes this lock).
 
 macro_rules! wlog {
-    ($lvl:ident, $($arg:tt)+) => { ::log::$lvl!(target: "pyasynq.worker", $($arg)+) };
+    ($lvl:ident, $($arg:tt)+) => { ::log::$lvl!(target: "spater.worker", $($arg)+) };
 }
 
 pub mod background;

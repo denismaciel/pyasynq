@@ -2,15 +2,15 @@
 
 import asyncio
 
-import pyasynq
 import pytest
+import spater
 from conftest import wait_for
 
 
 @pytest.fixture
 def make_scheduler(redis_addr, rdb):
     def make(**opts):
-        return pyasynq.Scheduler(
+        return spater.Scheduler(
             f"redis://{redis_addr}/0", heartbeat_interval=0.2, install_signal_handlers=False, **opts
         )
 
@@ -46,7 +46,7 @@ async def test_inspector_lists_python_entries(make_scheduler, redis_addr):
     sched = make_scheduler(location="Europe/Berlin")
     sched.register("CRON_TZ=Asia/Tokyo 0 9 * * *", "report", queue="reports", retention=3600)
     run = asyncio.create_task(sched.run())
-    inspector = pyasynq.Inspector(f"redis://{redis_addr}/0")
+    inspector = spater.Inspector(f"redis://{redis_addr}/0")
     await wait_for(lambda: inspector.scheduler_entries())
     [e] = inspector.scheduler_entries()
     assert (e.spec, e.task_type) == ("CRON_TZ=Asia/Tokyo 0 9 * * *", "report")
@@ -68,7 +68,7 @@ def test_invalid_specs(make_scheduler):
 
 
 async def test_app_periodic(redis_addr, rdb):
-    app = pyasynq.Asynq(f"redis://{redis_addr}/0")
+    app = spater.Asynq(f"redis://{redis_addr}/0")
 
     @app.periodic("@every 1s", {"n": 1}, queue="cron")
     @app.task("cron:job")
@@ -81,5 +81,5 @@ async def test_app_periodic(redis_addr, rdb):
     sched.shutdown()
     await run
     [tid] = rdb.lrange("asynq:{cron}:pending", 0, 0)
-    msg = pyasynq.TaskMessage.decode(rdb.hget(f"asynq:{{cron}}:t:{tid.decode()}", "msg"))
+    msg = spater.TaskMessage.decode(rdb.hget(f"asynq:{{cron}}:t:{tid.decode()}", "msg"))
     assert (msg.type, msg.payload, msg.headers) == ("cron:job", b'{"n":1}', {"content-type": "application/json"})

@@ -1,13 +1,13 @@
 import typing
 from importlib.metadata import version
 
-import pyasynq
+import spater
 
 
 def test_version_comes_from_rust():
-    assert pyasynq.version() == version("spater")
-    assert pyasynq.__version__ == pyasynq.version()
+    assert spater.version() == version("spater")
+    assert spater.__version__ == spater.version()
 
 
 def test_task_info_is_subscriptable():
-    assert typing.get_origin(pyasynq.TaskInfo[int]) is pyasynq.TaskInfo
+    assert typing.get_origin(spater.TaskInfo[int]) is spater.TaskInfo

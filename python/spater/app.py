@@ -28,15 +28,15 @@ from typing import (
     overload,
 )
 
-from pyasynq._core import TaskInfo
-from pyasynq.client import Client
-from pyasynq.context import TaskContext
-from pyasynq.errors import AsynqError, HandlerNotFound, SkipRetry
-from pyasynq.inspector import Inspector
-from pyasynq.postgres import EnqueueStatement, enqueue_statement
-from pyasynq.serde import CONTENT_TYPE, Codec, JsonCodec, RawCodec, codec_for, encode_result
-from pyasynq.task import Task
-from pyasynq.worker import (
+from spater._core import TaskInfo
+from spater.client import Client
+from spater.context import TaskContext
+from spater.errors import AsynqError, HandlerNotFound, SkipRetry
+from spater.inspector import Inspector
+from spater.postgres import EnqueueStatement, enqueue_statement
+from spater.serde import CONTENT_TYPE, Codec, JsonCodec, RawCodec, codec_for, encode_result
+from spater.task import Task
+from spater.worker import (
     DEFAULT_REDIS_URL,
     ErrorHandler,
     RetryDelayFunc,
@@ -49,9 +49,9 @@ from pyasynq.worker import (
 if TYPE_CHECKING:
     from typing_extensions import Unpack
 
-    from pyasynq.options import EnqueueOptions, TaskOptions
-    from pyasynq.postgres import ParamStyle, StatementOptions
-    from pyasynq.scheduler import Scheduler
+    from spater.options import EnqueueOptions, TaskOptions
+    from spater.postgres import ParamStyle, StatementOptions
+    from spater.scheduler import Scheduler
 
 PayloadT_contra = TypeVar("PayloadT_contra", contravariant=True)
 ResultT = TypeVar("ResultT")
@@ -170,7 +170,7 @@ class TaskDef(Generic[PayloadT_contra, ResultT]):
         self, payload: Any = None, /, *, paramstyle: ParamStyle = "format", **options: Any
     ) -> EnqueueStatement[ResultT]:
         """The SQL that enqueues this task from your own Postgres transaction
-        (see `pyasynq.postgres`). Pass ``paramstyle="numeric"`` for asyncpg."""
+        (see `spater.postgres`). Pass ``paramstyle="numeric"`` for asyncpg."""
         data, opts = self.message(payload, **options)
         return enqueue_statement(self.name, data, paramstyle=paramstyle, **opts)
 
@@ -378,7 +378,7 @@ class Asynq:
     def periodic(self, cronspec: str, payload: Any = None, **options: Unpack[TaskOptions]) -> Callable[[_TD], _TD]:
         """Registers `cronspec` (cron or "@every 30s") for the scheduler.
         Apply on top of `@app.task`."""
-        from pyasynq.scheduler import PeriodicEntry
+        from spater.scheduler import PeriodicEntry
 
         def register(td: _TD) -> _TD:
             if not isinstance(td, TaskDef):
@@ -436,7 +436,7 @@ class Asynq:
         asyncio.run(self.arun_worker(**options))
 
     def scheduler(self, **options: Any) -> Scheduler:
-        from pyasynq.scheduler import Scheduler
+        from spater.scheduler import Scheduler
 
         options.setdefault("redis_url", self.redis_url)
         sched = Scheduler(**options)

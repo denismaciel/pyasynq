@@ -4,7 +4,7 @@ import asyncio
 import threading
 import time
 
-import pyasynq
+import spater
 from conftest import wait_for
 
 
@@ -15,14 +15,14 @@ def state(rdb, task_id, queue="default"):
 
 def message(rdb, task_id, queue="default"):
     raw = rdb.hget(f"asynq:{{{queue}}}:t:{task_id}", "msg")
-    return pyasynq.TaskMessage.decode(raw)
+    return spater.TaskMessage.decode(raw)
 
 
 async def test_processes_tasks(client, rdb, make_worker):
     seen = []
 
     async def handler(ctx):
-        seen.append((ctx.type, ctx.payload, pyasynq.current_task().id))
+        seen.append((ctx.type, ctx.payload, spater.current_task().id))
 
     infos = [client.enqueue("greet", f"hi {i}".encode()) for i in range(20)]
     async with make_worker(handler, concurrency=4):
@@ -53,11 +53,11 @@ async def test_retry_control_flow(client, rdb, make_worker):
     async def handler(ctx):
         kind = ctx.payload.decode()
         if kind == "skip":
-            raise pyasynq.SkipRetry("bad input")
+            raise spater.SkipRetry("bad input")
         if kind == "revoke":
-            raise pyasynq.RevokeTask()
+            raise spater.RevokeTask()
         if kind == "later":
-            raise pyasynq.Retry("rate limited", after=100)
+            raise spater.Retry("rate limited", after=100)
 
     skip = client.enqueue("t", b"skip")
     revoke = client.enqueue("t", b"revoke")
@@ -118,13 +118,13 @@ async def test_sync_handler_runs_in_thread(client, rdb, make_worker):
     threads = []
 
     def handler(ctx):
-        threads.append((threading.current_thread().name, pyasynq.current_task().id))
+        threads.append((threading.current_thread().name, spater.current_task().id))
         time.sleep(0.05)
 
     infos = [client.enqueue("t") for _ in range(4)]
     async with make_worker(handler, concurrency=4):
         await wait_for(lambda: len(threads) == 4)
-    assert all(name.startswith("pyasynq-task") for name, _ in threads)
+    assert all(name.startswith("spater-task") for name, _ in threads)
     assert {i for _, i in threads} == {i.id for i in infos}
 
 

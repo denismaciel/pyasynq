@@ -1,4 +1,4 @@
-"""Free-threaded CPython: pyasynq keeps the GIL off, and its objects hold up
+"""Free-threaded CPython: spater keeps the GIL off, and its objects hold up
 when shared by threads that really run at the same time."""
 
 import os
@@ -9,11 +9,11 @@ import sysconfig
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-import pyasynq
 import pytest
+import spater
 from conftest import wait_for
-from pyasynq import Asynq
-from pyasynq._core import Broker, TaskMessage
+from spater import Asynq
+from spater._core import Broker, TaskMessage
 
 pytestmark = pytest.mark.skipif(
     not sysconfig.get_config_var("Py_GIL_DISABLED"), reason="needs a free-threaded CPython build"
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_importing_every_module_keeps_the_gil_disabled():
-    modules = [m.name for m in pkgutil.walk_packages(pyasynq.__path__, "pyasynq.") if m.name != "pyasynq.__main__"]
+    modules = [m.name for m in pkgutil.walk_packages(spater.__path__, "spater.") if m.name != "spater.__main__"]
     code = f"import importlib, sys\nfor m in {modules!r}: importlib.import_module(m)\nprint(sys._is_gil_enabled())"
     env = {k: v for k, v in os.environ.items() if k != "PYTHON_GIL"}
     # CPython warns when an extension without Py_MOD_GIL_NOT_USED turns the GIL on.
@@ -29,7 +29,7 @@ def test_importing_every_module_keeps_the_gil_disabled():
         [sys.executable, "-W", "error", "-c", code], env=env, capture_output=True, text=True, check=False
     )
     assert out.returncode == 0, out.stderr
-    assert "pyasynq._core" in modules
+    assert "spater._core" in modules
     assert out.stdout.strip() == "False"
 
 
@@ -66,9 +66,9 @@ async def test_sync_handlers_run_in_parallel(memory_url, run_app):
 
 def test_client_and_broker_shared_by_threads(broker_url):
     threads, per_thread = 8, 50
-    client = pyasynq.Client(broker_url)
+    client = spater.Client(broker_url)
     broker = Broker(broker_url)
-    inspector = pyasynq.Inspector(broker_url)
+    inspector = spater.Inspector(broker_url)
     barrier = threading.Barrier(threads)
 
     def enqueue(i: int) -> list[str]:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from pyasynq._core import (
+from spater._core import (
     AsynqError,
     BrokerError,
     DuplicateTaskError,

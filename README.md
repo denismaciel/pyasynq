@@ -14,27 +14,26 @@ Install a published release from PyPI with uv:
 uv add spater
 ```
 
-The distribution and primary command are `spater`. Python imports remain
-`pyasynq`; the `pyasynq` command is retained as a compatibility alias.
-When upgrading an environment that installed the old `pyasynq` distribution,
-remove it before installing `spater` because both provide the same Python package.
+The distribution, Python import, and CLI are `spater`. Old module and command
+aliases are removed. Existing PostgreSQL storage identifiers stay stable so
+upgrading does not lose queued tasks.
 
 Prebuilt wheels are also available on [GitHub Releases](https://github.com/denismaciel/pyasynq/releases). To select the matching wheel from a specific GitHub release:
 
 ```sh
-uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.5/index.html' 'spater==0.4.5'
+uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.5.0/index.html' 'spater==0.5.0'
 ```
 
 Each release includes `SHA256SUMS` and an `index.html` flat package index with hashed download links for automatic platform selection. Pin the versioned asset URL and its SHA-256 in your dependency lockfile. Installing a wheel needs neither Git nor a Rust compiler.
 
-Wheels are built for Linux (x86_64, aarch64, musl) and macOS (x86_64, arm64), for Python 3.10 and newer, plus free-threaded CPython 3.14t and 3.15t, where importing pyasynq keeps the GIL off and sync handlers run in parallel. You need Redis, or Postgres (the test suite runs on Postgres 17).
+Wheels are built for Linux (x86_64, aarch64, musl) and macOS (x86_64, arm64), for Python 3.10 and newer, plus free-threaded CPython 3.14t and 3.15t, where importing spater keeps the GIL off and sync handlers run in parallel. You need Redis, or Postgres (the test suite runs on Postgres 17).
 
 ## Quick start
 
 ```python
 # tasks.py
 from dataclasses import dataclass
-from pyasynq import Asynq, TaskContext
+from spater import Asynq, TaskContext
 
 app = Asynq("redis://localhost:6379/0")
 
@@ -127,7 +126,7 @@ def merge(group: str, tasks: list[Task]) -> Task: ...
 **Rate limiting across workers** (uses the same Redis key as Go's `x/rate`):
 
 ```python
-from pyasynq.rate import Semaphore
+from spater.rate import Semaphore
 openai = Semaphore(app.redis_url, "openai", max_tokens=5)
 
 @app.task
@@ -139,7 +138,7 @@ async def summarize(doc: Doc, ctx: TaskContext):
 **Inspection:**
 
 ```python
-from pyasynq import Inspector
+from spater import Inspector
 i = Inspector("redis://localhost:6379/0")
 i.get_queue_info("default"); i.list_tasks("default", "retry"); i.pause_queue("default")
 ```
@@ -152,24 +151,24 @@ spater inspect cancel <task-id>
 
 **Observability:**
 
-- `pyasynq.metrics.QueueMetricsCollector` is a Prometheus collector that uses asynq's metric names. Install with `uv add "spater[metrics]"`.
-- `pyasynq.otel.instrument(app)` propagates OpenTelemetry trace context through task headers. Install with `uv add "spater[otel]"`.
-- Logs go to Python `logging` under `pyasynq.*`.
+- `spater.metrics.QueueMetricsCollector` is a Prometheus collector that uses asynq's metric names. Install with `uv add "spater[metrics]"`.
+- `spater.otel.instrument(app)` propagates OpenTelemetry trace context through task headers. Install with `uv add "spater[otel]"`.
+- Logs go to Python `logging` under `spater.*`.
 
 **Testing:**
 
 ```python
-from pyasynq.testing import run_task, drain, memory_url
+from spater.testing import run_task, drain, memory_url
 assert await run_task(send_email, Email("a@b.c", "hi")) == {"sent": True}  # no broker
 await drain(app)  # real worker until queues are empty
 ```
 
-For tests that go through a real worker without Redis or Postgres, use an in-process broker: `Asynq(memory_url())` (or any `memory://<name>` URL). Every client, worker, inspector and scheduler in the process that opens the same URL shares one store, and `pyasynq.testing.reset_memory()` empties it. It runs the same conformance suite as the other backends. It doesn't persist anything and can't be shared between processes.
+For tests that go through a real worker without Redis or Postgres, use an in-process broker: `Asynq(memory_url())` (or any `memory://<name>` URL). Every client, worker, inspector and scheduler in the process that opens the same URL shares one store, and `spater.testing.reset_memory()` empties it. It runs the same conformance suite as the other backends. It doesn't persist anything and can't be shared between processes.
 
 Its clock can be moved forward, so retries, scheduled tasks, retention and uniqueness TTLs don't need real waits:
 
 ```python
-from pyasynq.testing import advance_time
+from spater.testing import advance_time
 info = await report.aenqueue(process_in=timedelta(hours=1))
 advance_time(app, timedelta(hours=1))   # the task is pending now
 await drain(app)
@@ -177,7 +176,7 @@ await drain(app)
 
 Leases, task deadlines and cron schedules stay on real time, so advancing the clock never makes a running task look abandoned.
 
-**Low-level API:** `pyasynq.Client` and `pyasynq.Worker(handler)` mirror Go's `Client` and `Server` when you don't want the `Asynq` app layer.
+**Low-level API:** `spater.Client` and `spater.Worker(handler)` mirror Go's `Client` and `Server` when you don't want the `Asynq` app layer.
 
 ## Postgres backend
 
@@ -192,7 +191,7 @@ The design follows [procrastinate](https://github.com/procrastinate-org/procrast
 - Every task is a row in `pyasynq_tasks`, holding the same asynq protobuf message the Redis backend stores, plus indexed columns for its state.
 - Workers claim tasks with `UPDATE ... FOR UPDATE SKIP LOCKED`, so any number of workers can share a queue without blocking each other. Every state transition is a single statement.
 - A trigger runs `NOTIFY` when a task becomes pending. Idle workers `LISTEN` and pick the task up right away, and the poll interval stays as a fallback. `Inspector.cancel_processing` also travels over `NOTIFY`.
-- The schema is created on first connect, guarded by an advisory lock and a version table. To manage it with your own migration tool, apply `pyasynq.postgres.schema_sql()` instead.
+- The schema is created on first connect, guarded by an advisory lock and a version table. To manage it with your own migration tool, apply `spater.postgres.schema_sql()` instead.
 
 The main reason to use it is **transactional enqueue**. The task is committed or rolled back together with your data:
 
@@ -233,7 +232,7 @@ make build
 make release-check
 ```
 
-Layout: `src/` holds the Rust engine and pyo3 bindings. `src/rdb/` has the storage layer: the Redis Lua scripts in `src/rdb/lua/` and the Postgres backend and schema in `src/rdb/pg/`, and the in-process backend in `src/rdb/memory.rs`. `python/pyasynq/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
+Layout: `src/` holds the Rust engine and pyo3 bindings. `src/rdb/` has the storage layer: the Redis Lua scripts in `src/rdb/lua/` and the Postgres backend and schema in `src/rdb/pg/`, and the in-process backend in `src/rdb/memory.rs`. `python/spater/` holds the Python API, and `interop/go/` holds a small Go program the tests use to check compatibility against real asynq.
 
 ## License
 
@@ -265,7 +264,7 @@ repaired; they do not claim manylinux portability.
 
 Tagged releases also publish the tested wheels and sdist to PyPI. Before the
 first publication, configure the `spater` project's PyPI Trusted Publisher for owner `denismaciel`,
-repository `pyasynq`, workflow `release.yml`, and GitHub environment `pypi`.
+repository `spater`, workflow `release.yml`, and GitHub environment `pypi`.
 Protect that environment with required review and restrict release tag creation
 and modification through repository rules. No long-lived PyPI token is needed.
 

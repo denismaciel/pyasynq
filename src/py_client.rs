@@ -21,7 +21,7 @@ fn client_err(e: client::Error) -> PyErr {
     }
 }
 
-#[pyclass(name = "TaskInfo", module = "pyasynq._core", frozen)]
+#[pyclass(name = "TaskInfo", module = "spater._core", frozen)]
 pub struct PyTaskInfo(pub(crate) TaskInfo);
 
 #[pymethods]
@@ -197,7 +197,7 @@ pub(crate) fn enqueue_request(
 }
 
 /// Enqueues tasks. Safe to share between threads and event loops.
-#[pyclass(name = "Client", module = "pyasynq._core", frozen, subclass)]
+#[pyclass(name = "Client", module = "spater._core", frozen, subclass)]
 pub struct PyClient {
     rdb: Arc<Rdb>,
 }
@@ -252,7 +252,7 @@ impl PyClient {
         runtime::block_on(py, req.run(&self.rdb))
     }
 
-    /// Returns an `asyncio.Future`; `pyasynq.Client.aenqueue` wraps it in a
+    /// Returns an `asyncio.Future`; `spater.Client.aenqueue` wraps it in a
     /// coroutine.
     #[pyo3(signature = (
         task_type, payload = None, *, queue = None, max_retry = None, task_id = None,

@@ -5,8 +5,8 @@ import gc
 import time
 import weakref
 
-import pyasynq
 import pytest
+import spater
 from conftest import wait_for
 
 
@@ -91,7 +91,7 @@ async def test_scheduled_groups_are_aggregated(client, rdb, make_worker):
 
     def aggregate(group, tasks):
         aggregated.append(group)
-        return pyasynq.Task("batch", b"")
+        return spater.Task("batch", b"")
 
     client.enqueue("original", group="g", process_in=0.2)
     async with make_worker(handle, group_aggregator=aggregate, group_max_size=1, group_grace_period=1):
@@ -110,7 +110,7 @@ def test_subsecond_timeout_is_rejected(client):
 
 async def test_rate_limit_is_not_archived_with_zero_retries(client, rdb, make_worker):
     async def handle(ctx):
-        raise pyasynq.RateLimited(after=30)
+        raise spater.RateLimited(after=30)
 
     info = client.enqueue("work", max_retry=0)
     async with make_worker(handle):
@@ -121,8 +121,8 @@ async def test_rate_limit_is_not_archived_with_zero_retries(client, rdb, make_wo
 async def test_nonempty_group_prevents_queue_deletion(client, redis_addr, rdb):
     client.enqueue("work", group="g")
     client.enqueue("done", queue="other", retention=60)
-    inspector = pyasynq.Inspector(f"redis://{redis_addr}/0")
-    with pytest.raises(pyasynq.FailedPreconditionError):
+    inspector = spater.Inspector(f"redis://{redis_addr}/0")
+    with pytest.raises(spater.FailedPreconditionError):
         inspector.delete_queue("default")
     inspector.delete_queue("default", force=True)
     assert rdb.keys("asynq:{default}:*") == []
@@ -130,7 +130,7 @@ async def test_nonempty_group_prevents_queue_deletion(client, redis_addr, rdb):
 
 
 async def test_worker_can_be_garbage_collected(redis_addr, rdb):
-    worker = pyasynq.Worker(lambda ctx: None, redis_url=f"redis://{redis_addr}/0")
+    worker = spater.Worker(lambda ctx: None, redis_url=f"redis://{redis_addr}/0")
     ref = weakref.ref(worker)
     del worker
     gc.collect()
@@ -138,9 +138,9 @@ async def test_worker_can_be_garbage_collected(redis_addr, rdb):
 
 
 async def test_positional_only_task():
-    from pyasynq.testing import run_task
+    from spater.testing import run_task
 
-    app = pyasynq.Asynq()
+    app = spater.Asynq()
 
     @app.task
     async def handler(n: int, /):
@@ -156,7 +156,7 @@ async def test_empty_bytes_result(client, rdb, make_worker, redis_addr):
     info = client.enqueue("work", retention=60)
     async with make_worker(handle):
         await wait_for(lambda: state(rdb, "default", info.id) == b"completed")
-    inspector = pyasynq.Inspector(f"redis://{redis_addr}/0")
+    inspector = spater.Inspector(f"redis://{redis_addr}/0")
     assert inspector.get_task_info("default", info.id).result == b""
 
 
@@ -205,7 +205,7 @@ async def test_handler_cancelled_error_releases_slot(client, rdb, make_worker):
 
 async def test_queue_reappears_when_existing_client_reuses_it(client, rdb, redis_addr):
     info = client.enqueue("work")
-    inspector = pyasynq.Inspector(f"redis://{redis_addr}/0")
+    inspector = spater.Inspector(f"redis://{redis_addr}/0")
     inspector.delete_task("default", info.id)
     inspector.delete_queue("default")
     info = client.enqueue("work")
@@ -214,7 +214,7 @@ async def test_queue_reappears_when_existing_client_reuses_it(client, rdb, redis
 
 async def test_task_id_conflict_does_not_leave_uniqueness_lock(client):
     client.enqueue("first", task_id="taken")
-    with pytest.raises(pyasynq.TaskIDConflictError):
+    with pytest.raises(spater.TaskIDConflictError):
         client.enqueue("second", b"payload", task_id="taken", unique=60)
     info = client.enqueue("second", b"payload", task_id="available", unique=60)
     assert info.id == "available"

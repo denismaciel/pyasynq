@@ -6,11 +6,11 @@ from typing import Any
 
 import psycopg
 import psycopg.sql
-import pyasynq
 import pytest
+import spater
 from conftest import FAST, wait_for
-from pyasynq._core import Broker
-from pyasynq.postgres import enqueue_statement
+from spater._core import Broker
+from spater.postgres import enqueue_statement
 
 SHUTDOWN_FAST: dict[str, Any] = {**FAST, "shutdown_timeout": 0.1}
 
@@ -61,8 +61,8 @@ def waiting_on_advisory(conn):
 
 
 async def test_queue_removal_waits_for_transactional_enqueue(pg_url):
-    client = pyasynq.Client(pg_url)
-    inspector = pyasynq.Inspector(pg_url)
+    client = spater.Client(pg_url)
+    inspector = spater.Inspector(pg_url)
     first = client.enqueue("first")
     inspector.delete_task("default", first.id)
     with psycopg.connect(pg_url) as tx:
@@ -72,7 +72,7 @@ async def test_queue_removal_waits_for_transactional_enqueue(pg_url):
         await asyncio.wait({removal}, timeout=0.3)
         assert not removal.done()
         tx.commit()
-        with pytest.raises(pyasynq.FailedPreconditionError):
+        with pytest.raises(spater.FailedPreconditionError):
             await asyncio.wait_for(removal, 2)
     with psycopg.connect(pg_url, autocommit=True) as conn:
         assert task_state(conn, stmt.info.id) == "pending"
@@ -80,8 +80,8 @@ async def test_queue_removal_waits_for_transactional_enqueue(pg_url):
 
 
 async def test_forced_queue_removal_spares_concurrently_claimed_task(pg_url):
-    info = pyasynq.Client(pg_url).enqueue("work")
-    inspector = pyasynq.Inspector(pg_url)
+    info = spater.Client(pg_url).enqueue("work")
+    inspector = spater.Inspector(pg_url)
     broker = Broker(pg_url)
     with psycopg.connect(pg_url, autocommit=True) as conn:
         hold_updates_to(conn, "active", 85012)
@@ -94,26 +94,26 @@ async def test_forced_queue_removal_spares_concurrently_claimed_task(pg_url):
             conn.execute("SELECT pg_advisory_unlock(85012)")
         claimed = await asyncio.wait_for(claim, 3)
         assert claimed is not None and claimed[0].id == info.id
-        with pytest.raises(pyasynq.FailedPreconditionError, match="active"):
+        with pytest.raises(spater.FailedPreconditionError, match="active"):
             await asyncio.wait_for(removal, 3)
         assert task_state(conn, info.id) == "active"
     assert inspector.queues() == ["default"]
 
 
 async def test_janitor_spares_task_requeued_while_it_waited(pg_url, run_app):
-    info = pyasynq.Client(pg_url).enqueue("work", retention=60)
+    info = spater.Client(pg_url).enqueue("work", retention=60)
     broker = Broker(pg_url)
     claimed = broker.dequeue("default")
     assert claimed is not None
     broker.mark_as_complete(claimed[0])
-    inspector = pyasynq.Inspector(pg_url)
+    inspector = spater.Inspector(pg_url)
     with psycopg.connect(pg_url, autocommit=True) as conn:
         conn.execute("UPDATE pyasynq_tasks SET expires_at = now() - interval '1 day' WHERE id = %s", (info.id,))
         hold_updates_to(conn, "pending", 85013)
         try:
             requeue = asyncio.create_task(asyncio.to_thread(inspector.run_task, "default", info.id))
             await wait_for(lambda: waiting_on_advisory(conn))
-            app = pyasynq.Asynq(pg_url)
+            app = spater.Asynq(pg_url)
             async with run_app(app, task_check_interval=10, janitor_interval=100, shutdown_timeout=0.1) as worker:
                 worker.stop()
                 await wait_for(lambda: waiting(conn, "%DELETE FROM pyasynq_tasks t%"))
@@ -126,10 +126,10 @@ async def test_janitor_spares_task_requeued_while_it_waited(pg_url, run_app):
 
 
 async def test_shutdown_is_bounded_while_a_claim_blocks(pg_url):
-    info = pyasynq.Client(pg_url).enqueue("work")
+    info = spater.Client(pg_url).enqueue("work")
     with psycopg.connect(pg_url, autocommit=True) as conn:
         hold_updates_to(conn, "active", 85014)
-        worker = pyasynq.Worker(lambda ctx: None, redis_url=pg_url, **SHUTDOWN_FAST)
+        worker = spater.Worker(lambda ctx: None, redis_url=pg_url, **SHUTDOWN_FAST)
         run = asyncio.create_task(worker.run())
         try:
             await wait_for(lambda: waiting_on_advisory(conn))
@@ -145,8 +145,8 @@ async def test_shutdown_is_bounded_while_a_claim_blocks(pg_url):
 
 
 async def test_shutdown_is_bounded_while_the_table_is_locked(pg_url):
-    pyasynq.Client(pg_url)
-    worker = pyasynq.Worker(lambda ctx: None, redis_url=pg_url, **SHUTDOWN_FAST)
+    spater.Client(pg_url)
+    worker = spater.Worker(lambda ctx: None, redis_url=pg_url, **SHUTDOWN_FAST)
     run = asyncio.create_task(worker.run())
     await wait_for(lambda: worker.status == "active")
     with psycopg.connect(pg_url) as blocker, psycopg.connect(pg_url, autocommit=True) as observer:
@@ -162,13 +162,13 @@ async def test_shutdown_is_bounded_while_the_table_is_locked(pg_url):
 
 
 async def test_shutdown_rolls_back_claims_from_earlier_queues(pg_url):
-    client = pyasynq.Client(pg_url)
+    client = spater.Client(pg_url)
     first = client.enqueue("work", queue="first")
     second = client.enqueue("work", queue="second")
     handled: list[bool] = []
     with psycopg.connect(pg_url, autocommit=True) as conn:
         hold_updates_to(conn, "active", 85015, queue="second")
-        worker = pyasynq.Worker(
+        worker = spater.Worker(
             lambda ctx: handled.append(True),
             redis_url=pg_url,
             concurrency=2,

@@ -16,7 +16,7 @@ use crate::client::{self, EnqueueOptions, TaskInfo};
 use crate::rdb::{self, Rdb};
 
 macro_rules! slog {
-    ($lvl:ident, $($arg:tt)+) => { ::log::$lvl!(target: "pyasynq.scheduler", $($arg)+) };
+    ($lvl:ident, $($arg:tt)+) => { ::log::$lvl!(target: "spater.scheduler", $($arg)+) };
 }
 
 #[derive(Debug, Clone)]

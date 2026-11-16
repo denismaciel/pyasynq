@@ -7,12 +7,12 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 
-import pyasynq
 import pytest
+import spater
 from conftest import wait_for
-from pyasynq import Asynq, testing
-from pyasynq._core import Broker
-from pyasynq.inspector import Inspector
+from spater import Asynq, testing
+from spater._core import Broker
+from spater.inspector import Inspector
 
 
 @dataclass
@@ -21,13 +21,13 @@ class Signup:
 
 
 def test_handles_with_the_same_url_share_a_store(memory_url):
-    info = pyasynq.Client(memory_url).enqueue("t")
+    info = spater.Client(memory_url).enqueue("t")
     assert Inspector(memory_url).get_task_info("default", info.id).state == "pending"
     assert Inspector(testing.memory_url()).queues() == []
 
 
 def test_reset_empties_the_store(memory_url):
-    pyasynq.Client(memory_url).enqueue("t")
+    spater.Client(memory_url).enqueue("t")
     testing.reset_memory(memory_url)
     assert Inspector(memory_url).queues() == []
 
@@ -35,7 +35,7 @@ def test_reset_empties_the_store(memory_url):
 def test_named_urls_are_stable():
     url = testing.memory_url("named")
     try:
-        pyasynq.Client(url).enqueue("t")
+        spater.Client(url).enqueue("t")
         assert Inspector(testing.memory_url("named")).queues() == ["default"]
     finally:
         testing.reset_memory(url)
@@ -99,7 +99,7 @@ async def test_many_workers_process_each_task_once(memory_url, run_app):
         async def job(i: int) -> None:
             counts[i] = counts.get(i, 0) + 1
 
-    client = pyasynq.Client(memory_url)
+    client = spater.Client(memory_url)
     for i in range(n):
         await client.aenqueue("job", str(i).encode(), headers={"content-type": "application/json"})
     async with run_app(apps[0], concurrency=10), run_app(apps[1], concurrency=10), run_app(apps[2], concurrency=10):
@@ -185,10 +185,10 @@ async def test_running_task_survives_a_jump(memory_url, run_app):
 
 
 def test_retention_and_uniqueness_expire(memory_url):
-    client = pyasynq.Client(memory_url)
+    client = spater.Client(memory_url)
     inspector = Inspector(memory_url)
     client.enqueue("u", b"x", unique=60)
-    with pytest.raises(pyasynq.DuplicateTaskError):
+    with pytest.raises(spater.DuplicateTaskError):
         client.enqueue("u", b"x", unique=60)
     testing.advance_time(memory_url, 61)
     client.enqueue("u", b"x", unique=60)
@@ -203,7 +203,7 @@ def test_retention_and_uniqueness_expire(memory_url):
     testing.advance_time(memory_url, 59)
     assert inspector.get_task_info("default", info.id).state == "completed"
     testing.advance_time(memory_url, 2)
-    with pytest.raises(pyasynq.TaskNotFoundError):
+    with pytest.raises(spater.TaskNotFoundError):
         inspector.get_task_info("default", info.id)
 
 
@@ -220,7 +220,7 @@ async def test_group_grace_period_follows_the_clock(memory_url, run_app):
         batches.append(sorted(users))
 
     @app.group_aggregator
-    def combine(group: str, tasks: list[pyasynq.Task]) -> pyasynq.Task:
+    def combine(group: str, tasks: list[spater.Task]) -> spater.Task:
         return notify_batch.task([json.loads(t.payload) for t in tasks])
 
     for user in ["ann", "bob"]:

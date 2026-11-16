@@ -30,7 +30,7 @@ fn page_index(page: usize) -> PyResult<usize> {
         .ok_or_else(|| PyValueError::new_err("page starts at 1"))
 }
 
-#[pyclass(name = "QueueInfo", module = "pyasynq._core", frozen, get_all)]
+#[pyclass(name = "QueueInfo", module = "spater._core", frozen, get_all)]
 pub struct PyQueueInfo {
     queue: String,
     memory_usage: i64,
@@ -88,7 +88,7 @@ impl PyQueueInfo {
     }
 }
 
-#[pyclass(name = "DailyStats", module = "pyasynq._core", frozen, get_all)]
+#[pyclass(name = "DailyStats", module = "spater._core", frozen, get_all)]
 pub struct PyDailyStats {
     queue: String,
     processed: i64,
@@ -107,7 +107,7 @@ impl From<DailyStats> for PyDailyStats {
     }
 }
 
-#[pyclass(name = "WorkerInfo", module = "pyasynq._core", frozen, get_all)]
+#[pyclass(name = "WorkerInfo", module = "spater._core", frozen, get_all)]
 pub struct PyWorkerInfo {
     task_id: String,
     task_type: String,
@@ -117,7 +117,7 @@ pub struct PyWorkerInfo {
     deadline: Option<DateTime<Utc>>,
 }
 
-#[pyclass(name = "ServerInfo", module = "pyasynq._core", frozen, get_all)]
+#[pyclass(name = "ServerInfo", module = "spater._core", frozen, get_all)]
 pub struct PyServerInfo {
     id: String,
     host: String,
@@ -176,7 +176,7 @@ fn server_info(py: Python<'_>, s: ServerDetail) -> PyResult<PyServerInfo> {
     })
 }
 
-#[pyclass(name = "SchedulerEntry", module = "pyasynq._core", frozen, get_all)]
+#[pyclass(name = "SchedulerEntry", module = "spater._core", frozen, get_all)]
 pub struct PySchedulerEntry {
     id: String,
     spec: String,
@@ -203,7 +203,7 @@ impl From<pb::SchedulerEntry> for PySchedulerEntry {
 
 #[pyclass(
     name = "SchedulerEnqueueEvent",
-    module = "pyasynq._core",
+    module = "spater._core",
     frozen,
     get_all
 )]
@@ -214,7 +214,7 @@ pub struct PySchedulerEnqueueEvent {
 
 /// Read and manage queues and tasks; the same view asynq's Inspector and
 /// asynqmon have, so Go and Python tools can be mixed.
-#[pyclass(name = "Inspector", module = "pyasynq._core", frozen, subclass)]
+#[pyclass(name = "Inspector", module = "spater._core", frozen, subclass)]
 pub struct PyInspector {
     rdb: Arc<Rdb>,
 }

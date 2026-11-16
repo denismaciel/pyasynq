@@ -31,7 +31,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Secs {
 /// Frozen with a lock inside rather than a mutable pyclass: on free-threaded
 /// Python a mutable pyclass raises "Already borrowed" when one thread reads
 /// an attribute while another sets one.
-#[pyclass(name = "TaskMessage", module = "pyasynq._core", frozen, eq)]
+#[pyclass(name = "TaskMessage", module = "spater._core", frozen, eq)]
 pub struct PyTaskMessage(Mutex<base::TaskMessage>);
 
 impl PyTaskMessage {

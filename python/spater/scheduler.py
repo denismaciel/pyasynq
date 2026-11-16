@@ -7,8 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pyasynq import _core
-from pyasynq.worker import DEFAULT_REDIS_URL, seconds
+from spater import _core
+from spater.worker import DEFAULT_REDIS_URL, seconds
 
 PostEnqueue = Callable[[str, "_core.TaskInfo | None", "BaseException | None"], None]
 

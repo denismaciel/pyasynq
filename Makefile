@@ -33,7 +33,7 @@ lint: typecheck
 # in sync with the compiled extension.
 typecheck: dev
 	uv run --no-sync mypy
-	uv run --no-sync python -m mypy.stubtest pyasynq._core --allowlist stubtest-allowlist.txt
+	uv run --no-sync python -m mypy.stubtest spater._core --allowlist stubtest-allowlist.txt
 
 redis:
 	redis-server --port 6379 --save "" --appendonly no

@@ -8,18 +8,18 @@ import sys
 import textwrap
 import time
 
-import pyasynq
+import spater
 from conftest import wait_for
 
 CRASHY_WORKER = textwrap.dedent(
     """
-    import asyncio, sys, pyasynq
+    import asyncio, sys, spater
 
     async def handler(ctx):
         print("started", flush=True)
         await asyncio.sleep(60)
 
-    pyasynq.Worker(
+    spater.Worker(
         handler,
         redis_url=sys.argv[1],
         task_check_interval=0.02,
@@ -49,7 +49,7 @@ async def test_crashed_worker_task_is_recovered(client, rdb, redis_addr, make_wo
 
     async with make_worker(never, recoverer_interval=0.2, recoverer_skew=0):
         await wait_for(lambda: rdb.hget(f"asynq:{{default}}:t:{info.id}", "state") == b"retry", timeout=8)
-    msg = pyasynq.TaskMessage.decode(rdb.hget(f"asynq:{{default}}:t:{info.id}", "msg"))
+    msg = spater.TaskMessage.decode(rdb.hget(f"asynq:{{default}}:t:{info.id}", "msg"))
     assert msg.error_msg == "asynq: task lease expired"
     assert msg.retried == 1
     assert rdb.llen("asynq:{default}:active") == 0
@@ -134,6 +134,6 @@ async def test_python_processes_go_tasks_and_go_processes_python_tasks(client, r
     handled = await asyncio.to_thread(go_asynq, "worker", queue="go", duration="1s")
     assert {(h["id"], h["type"]) for h in handled} == {(py_ok.id, "report"), (py_fail.id, "report")}
     assert rdb.exists(f"asynq:{{go}}:t:{py_ok.id}") == 0
-    msg = pyasynq.TaskMessage.decode(rdb.hget(f"asynq:{{go}}:t:{py_fail.id}", "msg"))
+    msg = spater.TaskMessage.decode(rdb.hget(f"asynq:{{go}}:t:{py_fail.id}", "msg"))
     assert (msg.retried, msg.error_msg) == (1, "go handler failed")
     assert time.time() < rdb.zscore("asynq:{go}:retry", py_fail.id)

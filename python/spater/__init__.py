@@ -1,8 +1,8 @@
-from pyasynq._core import TaskInfo, TaskMessage, version
-from pyasynq.app import Asynq, TaskDecorator, TaskDef, TaskFailed
-from pyasynq.client import Client
-from pyasynq.context import TaskContext, current_task
-from pyasynq.errors import (
+from spater._core import TaskInfo, TaskMessage, version
+from spater.app import Asynq, TaskDecorator, TaskDef, TaskFailed
+from spater.client import Client
+from spater.context import TaskContext, current_task
+from spater.errors import (
     AsynqError,
     BrokerError,
     DeadlineExceeded,
@@ -21,11 +21,11 @@ from pyasynq.errors import (
     TaskIDConflictError,
     TaskNotFoundError,
 )
-from pyasynq.inspector import Inspector
-from pyasynq.options import EnqueueOptions, TaskOptions
-from pyasynq.scheduler import Scheduler
-from pyasynq.task import Task
-from pyasynq.worker import Worker
+from spater.inspector import Inspector
+from spater.options import EnqueueOptions, TaskOptions
+from spater.scheduler import Scheduler
+from spater.task import Task
+from spater.worker import Worker
 
 __version__ = version()
 

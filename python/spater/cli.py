@@ -19,12 +19,12 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
-from pyasynq import _core
-from pyasynq.worker import DEFAULT_REDIS_URL
+from spater import _core
+from spater.worker import DEFAULT_REDIS_URL
 
 
 def load_app(ref: str) -> Any:
-    from pyasynq.app import Asynq
+    from spater.app import Asynq
 
     module_name, _, attr = ref.partition(":")
     if not module_name or not attr:
@@ -78,7 +78,7 @@ def _jsonable(v: Any) -> Any:
         return [_jsonable(x) for x in v]
     if isinstance(v, dict):
         return {k: _jsonable(x) for k, x in v.items()}
-    if hasattr(v, "__class__") and v.__class__.__module__ == "pyasynq._core":
+    if hasattr(v, "__class__") and v.__class__.__module__ == "spater._core":
         return {k: _jsonable(getattr(v, k)) for k in dir(v) if not k.startswith("_") and not callable(getattr(v, k))}
     return v
 
@@ -89,7 +89,7 @@ def _print(v: Any) -> None:
 
 def cmd_worker(args: argparse.Namespace, argv: Sequence[str]) -> int:
     if args.processes > 1:
-        from pyasynq.prefork import Supervisor
+        from spater.prefork import Supervisor
 
         return Supervisor([*strip_option(argv, "--processes"), "--processes", "1"], args.processes).run()
     app = load_app(args.app)
@@ -115,7 +115,7 @@ def cmd_scheduler(args: argparse.Namespace, argv: Sequence[str]) -> int:
 
 
 def cmd_inspect(args: argparse.Namespace, argv: Sequence[str]) -> int:
-    from pyasynq.inspector import Inspector
+    from spater.inspector import Inspector
 
     i = Inspector(args.redis or DEFAULT_REDIS_URL)
     a = args.args
@@ -155,7 +155,7 @@ def cmd_inspect(args: argparse.Namespace, argv: Sequence[str]) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="spater", description=__doc__.split("\n")[0])
-    p.add_argument("--log-level", default=os.environ.get("PYASYNQ_LOG_LEVEL", "info"))
+    p.add_argument("--log-level", default=os.environ.get("SPATER_LOG_LEVEL", "info"))
     sub = p.add_subparsers(dest="command", required=True)
 
     w = sub.add_parser("worker", help="process tasks")

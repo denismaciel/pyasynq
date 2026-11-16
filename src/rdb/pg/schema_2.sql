@@ -1,4 +1,4 @@
--- pyasynq Postgres schema, version 2.
+-- spater Postgres schema, version 2.
 
 -- An inserted task holds a key-share lock on its queue's registry row until
 -- its transaction ends. Queue removal locks that row FOR UPDATE, so it waits

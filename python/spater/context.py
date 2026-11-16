@@ -8,13 +8,13 @@ import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from pyasynq.errors import DeadlineExceeded, TaskCanceled
+from spater.errors import DeadlineExceeded, TaskCanceled
 
 if TYPE_CHECKING:
-    from pyasynq._core import Engine, TaskMessage
-    from pyasynq.worker import Worker
+    from spater._core import Engine, TaskMessage
+    from spater.worker import Worker
 
-_current: contextvars.ContextVar[TaskContext] = contextvars.ContextVar("pyasynq_task")
+_current: contextvars.ContextVar[TaskContext] = contextvars.ContextVar("spater_task")
 
 
 def current_task() -> TaskContext:
@@ -22,7 +22,7 @@ def current_task() -> TaskContext:
     try:
         return _current.get()
     except LookupError:
-        raise RuntimeError("not running inside a pyasynq task handler") from None
+        raise RuntimeError("not running inside a spater task handler") from None
 
 
 class TaskContext:

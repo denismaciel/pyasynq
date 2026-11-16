@@ -36,7 +36,7 @@ const VERSION_TABLE: &str = "CREATE TABLE IF NOT EXISTS pyasynq_schema_version (
 );";
 
 /// The full migration as one script, for applying it with an external tool
-/// instead of letting pyasynq migrate on connect.
+/// instead of letting spater migrate on connect.
 pub fn migration_sql() -> String {
     let mut sql = format!("{VERSION_TABLE}\n");
     for (i, m) in MIGRATIONS.iter().enumerate() {

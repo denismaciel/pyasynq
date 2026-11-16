@@ -18,7 +18,7 @@ use crate::scheduler::{PostEnqueue, Scheduler};
 
 /// Enqueues tasks periodically. Entries are visible to asynq's Inspector
 /// and asynqmon; run one scheduler per set of entries.
-#[pyclass(name = "Scheduler", module = "pyasynq._core", frozen, subclass)]
+#[pyclass(name = "Scheduler", module = "spater._core", frozen, subclass)]
 pub struct PyScheduler {
     inner: Arc<Scheduler>,
 }

@@ -8,11 +8,11 @@ import sys
 import textwrap
 import time
 
-import pyasynq
 import pytest
+import spater
 from conftest import ROOT, wait_for
-from pyasynq import Asynq, RateLimited, TaskContext
-from pyasynq.rate import Semaphore
+from spater import Asynq, RateLimited, TaskContext
+from spater.rate import Semaphore
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def app(url):
 
 
 async def test_semaphore_limits_across_holders(url, rdb):
-    from pyasynq.testing import make_context
+    from spater.testing import make_context
 
     sema = Semaphore(url, "api", max_tokens=1)
     a, b = make_context(), make_context()
@@ -66,7 +66,7 @@ async def test_rate_limited_task_retries_without_failure(app, run_app, url):
 
 async def test_prometheus_collector(app, client):
     from prometheus_client import CollectorRegistry, generate_latest
-    from pyasynq.metrics import QueueMetricsCollector
+    from spater.metrics import QueueMetricsCollector
 
     client.enqueue("a", b"", queue="q1")
     client.enqueue("b", b"", queue="q1", process_in=60)
@@ -85,7 +85,7 @@ async def test_otel_trace_continues_in_worker(app, run_app):
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-    from pyasynq.otel import instrument
+    from spater.otel import instrument
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -112,7 +112,7 @@ async def test_otel_trace_continues_in_worker(app, run_app):
 
 
 async def test_run_task_goes_through_middleware():
-    from pyasynq.testing import run_task
+    from spater.testing import run_task
 
     app = Asynq()
     seen = []
@@ -131,7 +131,7 @@ async def test_run_task_goes_through_middleware():
 
 
 async def test_drain(app):
-    from pyasynq.testing import drain
+    from spater.testing import drain
 
     done = []
 
@@ -150,7 +150,7 @@ def _write_app(tmp_path, url, body):
         textwrap.dedent(
             f"""
             import os
-            from pyasynq import Asynq
+            from spater import Asynq
             app = Asynq({url!r})
             """
         )
@@ -161,7 +161,7 @@ def _write_app(tmp_path, url, body):
 def _cli(tmp_path, *args, **kw):
     env = {**os.environ, "PYTHONPATH": str(ROOT / "python")}
     return subprocess.Popen(
-        [sys.executable, "-m", "pyasynq", *args],
+        [sys.executable, "-m", "spater", *args],
         cwd=tmp_path,
         env=env,
         stdout=subprocess.PIPE,
@@ -204,7 +204,7 @@ def test_cli_worker(tmp_path, url, rdb, processes):
         "1",
     )
     try:
-        client = pyasynq.Client(url)
+        client = spater.Client(url)
         deadline = time.time() + 20
         while len(rdb.keys("asynq:servers:*")) < processes:
             assert time.time() < deadline, proc.stderr.read() if proc.poll() is not None else "no servers"
@@ -222,7 +222,7 @@ def test_cli_worker(tmp_path, url, rdb, processes):
 
 
 def test_strip_option():
-    from pyasynq.cli import strip_option
+    from spater.cli import strip_option
 
     assert strip_option(["w", "--processes", "3", "-c", "2"], "--processes") == ["w", "-c", "2"]
     assert strip_option(["w", "--processes=3"], "--processes") == ["w"]

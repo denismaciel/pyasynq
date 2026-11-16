@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyasynq import _core
+from spater import _core
 
 
 class Inspector(_core.Inspector):

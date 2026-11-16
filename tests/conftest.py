@@ -121,7 +121,7 @@ def postgres_dsn(tmp_path_factory):
 
 @pytest.fixture
 def pg_url(postgres_dsn):
-    """A postgres URL with an empty schema; pyasynq creates its tables on connect."""
+    """A postgres URL with an empty schema; spater creates its tables on connect."""
     import psycopg
 
     with psycopg.connect(postgres_dsn, autocommit=True) as conn:
@@ -133,7 +133,7 @@ def pg_url(postgres_dsn):
 @pytest.fixture
 def memory_url():
     """A fresh in-process broker."""
-    from pyasynq import testing
+    from spater import testing
 
     url = testing.memory_url()
     yield url
@@ -153,9 +153,9 @@ def broker_url(request):
 
 @pytest.fixture
 def client(rdb, redis_addr):
-    import pyasynq
+    import spater
 
-    return pyasynq.Client(f"redis://{redis_addr}/0")
+    return spater.Client(f"redis://{redis_addr}/0")
 
 
 FAST: dict[str, Any] = {
@@ -187,11 +187,11 @@ def make_worker(redis_addr, rdb):
     import asyncio
     import contextlib
 
-    import pyasynq
+    import spater
 
     @contextlib.asynccontextmanager
     async def run(handler, **options):
-        worker = pyasynq.Worker(handler, redis_url=f"redis://{redis_addr}/0", **{**FAST, **options})
+        worker = spater.Worker(handler, redis_url=f"redis://{redis_addr}/0", **{**FAST, **options})
         task = asyncio.create_task(worker.run())
         await wait_for(lambda: worker.status == "active" or task.done())
         if task.done():

@@ -16,13 +16,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypedDict, TypeVar
 
-from pyasynq import _core
-from pyasynq._core import TaskInfo
+from spater import _core
+from spater._core import TaskInfo
 
 if TYPE_CHECKING:
     from typing_extensions import LiteralString, Unpack
 
-    from pyasynq.options import Duration
+    from spater.options import Duration
 
 __all__ = ["EnqueueStatement", "StatementOptions", "enqueue_statement", "schema_sql"]
 
@@ -32,7 +32,7 @@ ParamStyle = Literal["format", "numeric"]
 
 
 class StatementOptions(TypedDict, total=False):
-    """Enqueue options supported in a transaction. Uniqueness needs pyasynq's
+    """Enqueue options supported in a transaction. Uniqueness needs spater's
     lock table and is only available through the client."""
 
     queue: str
@@ -73,6 +73,6 @@ def enqueue_statement(
 
 
 def schema_sql() -> LiteralString:
-    """The schema pyasynq creates on connect, for applying it with your own
+    """The schema spater creates on connect, for applying it with your own
     migration tool instead."""
     return _core.pg_schema()

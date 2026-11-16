@@ -2,7 +2,7 @@
 
 Forking a process that already started the tokio runtime is unsafe
 (threads don't survive fork), so instead of `os.fork` the supervisor
-starts fresh interpreters running `pyasynq worker ... --processes 1`.
+starts fresh interpreters running `spater worker ... --processes 1`.
 Each child is an independent asynq server with its own heartbeat.
 """
 
@@ -15,7 +15,7 @@ import sys
 import time
 from types import FrameType
 
-log = logging.getLogger("pyasynq.prefork")
+log = logging.getLogger("spater.prefork")
 
 
 class Supervisor:
@@ -30,7 +30,7 @@ class Supervisor:
         self._stopping = False
 
     def _spawn(self) -> subprocess.Popen[bytes]:
-        cmd = [sys.executable, "-m", "pyasynq", *self.child_args]
+        cmd = [sys.executable, "-m", "spater", *self.child_args]
         proc = subprocess.Popen(cmd)
         log.info("started worker process pid=%d", proc.pid)
         return proc

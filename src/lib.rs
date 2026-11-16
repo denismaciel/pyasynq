@@ -23,7 +23,7 @@ fn version() -> &'static str {
 
 static LOG_RESET: std::sync::OnceLock<Option<pyo3_log::ResetHandle>> = std::sync::OnceLock::new();
 
-/// Rust log records go to Python `logging` (loggers "pyasynq.*"). Levels
+/// Rust log records go to Python `logging` (loggers "spater.*"). Levels
 /// are cached; call this after reconfiguring logging.
 #[pyfunction]
 fn reset_log_cache() {

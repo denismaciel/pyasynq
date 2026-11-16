@@ -1,4 +1,4 @@
-// Command interop drives real Go asynq so pyasynq tests can check wire
+// Command interop drives real Go asynq so spater tests can check wire
 // compatibility in both directions.
 //
 //	interop enqueue -addr localhost:6379           # prints the TaskInfo as JSON

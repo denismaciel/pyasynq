@@ -1,6 +1,6 @@
 """OpenTelemetry tracing: trace context travels in task headers.
 
-    from pyasynq.otel import instrument
+    from spater.otel import instrument
     instrument(app)
 
 Producers inject the current context (W3C `traceparent`) into the task
@@ -12,15 +12,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyasynq.app import Asynq
-from pyasynq.context import TaskContext
+from spater.app import Asynq
+from spater.context import TaskContext
 
 
 def instrument(app: Asynq, tracer_provider: Any = None) -> None:
     from opentelemetry import propagate, trace
     from opentelemetry.trace import SpanKind, Status, StatusCode
 
-    tracer = trace.get_tracer("pyasynq", tracer_provider=tracer_provider)
+    tracer = trace.get_tracer("spater", tracer_provider=tracer_provider)
 
     @app.before_enqueue
     def inject(task_type: str, headers: dict[str, str]) -> None:
