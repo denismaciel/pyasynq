@@ -7,7 +7,6 @@ import subprocess
 import sys
 import sysconfig
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pyasynq
@@ -34,41 +33,35 @@ def test_importing_every_module_keeps_the_gil_disabled():
     assert out.stdout.strip() == "False"
 
 
-def _spin(n: int) -> int:
-    x = 0
-    for i in range(n):
-        x += i
-    return x
-
-
 async def test_sync_handlers_run_in_parallel(memory_url, run_app):
     threads = 4
-    if (os.cpu_count() or 1) < threads:
-        pytest.skip(f"needs {threads} CPUs")
-    start = time.perf_counter()
-    _spin(1_000_000)
-    n = int(1_000_000 * 0.3 / (time.perf_counter() - start))
-    start = time.perf_counter()
-    _spin(n)
-    alone = time.perf_counter() - start
-
+    barrier = threading.Barrier(threads, timeout=10)
+    completed: list[tuple[int, bool]] = []
+    failures: list[str] = []
     app = Asynq(memory_url)
-    spans: list[tuple[float, float]] = []
 
-    @app.task("spin")
-    def spin() -> None:
-        begin = time.perf_counter()
-        _spin(n)
-        spans.append((begin, time.perf_counter()))
+    @app.task("overlap")
+    def overlap() -> None:
+        try:
+            # Every handler must enter before any can return. Serial dispatch
+            # or an undersized thread pool breaks this barrier deterministically.
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            failures.append("handlers did not overlap")
+        finally:
+            completed.append((threading.get_ident(), getattr(sys, "_is_gil_enabled", lambda: True)()))
 
     for _ in range(threads):
-        await spin.aenqueue()
+        await overlap.aenqueue()
     async with run_app(app, concurrency=threads):
-        await wait_for(lambda: len(spans) == threads, timeout=60)
+        await wait_for(lambda: len(completed) == threads, timeout=30)
 
-    # With a GIL the four handlers take turns: about 4x `alone` end to end.
-    elapsed = max(end for _, end in spans) - min(begin for begin, _ in spans)
-    assert elapsed < 2 * alone, f"{threads} handlers took {elapsed:.2f}s, one alone {alone:.2f}s"
+    assert not failures, failures
+    assert len({thread for thread, _gil in completed}) == threads
+    assert all(not gil for _thread, gil in completed), "handler execution enabled the GIL"
+    # CPU speedup depends on runner quotas/load and is not a correctness gate.
+    # The barrier proves concurrent handler execution; the explicit GIL check
+    # verifies that Python execution is not globally serialized by the GIL.
 
 
 def test_client_and_broker_shared_by_threads(broker_url):
