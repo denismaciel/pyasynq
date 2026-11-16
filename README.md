@@ -22,7 +22,7 @@ remove it before installing `spater` because both provide the same Python packag
 Prebuilt wheels are also available on [GitHub Releases](https://github.com/denismaciel/pyasynq/releases). To select the matching wheel from a specific GitHub release:
 
 ```sh
-uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.4/index.html' 'spater==0.4.4'
+uv pip install --no-index --find-links 'https://github.com/denismaciel/pyasynq/releases/download/v0.4.5/index.html' 'spater==0.4.5'
 ```
 
 Each release includes `SHA256SUMS` and an `index.html` flat package index with hashed download links for automatic platform selection. Pin the versioned asset URL and its SHA-256 in your dependency lockfile. Installing a wheel needs neither Git nor a Rust compiler.

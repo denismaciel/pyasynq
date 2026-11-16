@@ -50,6 +50,17 @@ def _native():
     env = os.environ.copy()
     env["PYO3_PYTHON"] = sys.executable
     env.setdefault("CARGO_BUILD_JOBS", "2")
+    rust_cfg = ["rustc", "--print", "cfg"]
+    if env.get("CARGO_BUILD_TARGET"):
+        rust_cfg += ["--target", env["CARGO_BUILD_TARGET"]]
+    if 'target_env="musl"' in subprocess.check_output(rust_cfg, env=env, text=True).splitlines():
+        # Rust's musl target defaults to a static CRT, which cannot produce our
+        # cdylib. Apply this to source installs too, not only release builders.
+        if "CARGO_ENCODED_RUSTFLAGS" in env:
+            flags = env["CARGO_ENCODED_RUSTFLAGS"]
+            env["CARGO_ENCODED_RUSTFLAGS"] = (flags + "\x1f" if flags else "") + "-Ctarget-feature=-crt-static"
+        else:
+            env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-feature=-crt-static"
     command = ["cargo", "build", "--locked", "--release", "--lib", "--message-format=json-render-diagnostics"]
     if config.get("cargo-features"):
         command += ["--features", ",".join(config["cargo-features"])]
