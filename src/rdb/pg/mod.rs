@@ -107,9 +107,9 @@ fn group_required(group: Option<&str>) -> Result<&str> {
     group.ok_or_else(|| Error::FailedPrecondition("group required".into()))
 }
 
-/// A pooled connection for a query whose effect must not land unseen. If
-/// the future is dropped mid-query (shutdown), the query is canceled and the
-/// connection discarded instead of returned to the pool.
+/// Discards a pooled connection and requests cancellation when dropped mid-query.
+/// Cancellation alone cannot prevent autocommit; claims use an explicit
+/// transaction so dropping them before commit also queues rollback.
 struct CancelOnDrop {
     client: Option<deadpool_postgres::Object>,
     tls: MakeRustlsConnect,
@@ -127,6 +127,12 @@ impl std::ops::Deref for CancelOnDrop {
 
     fn deref(&self) -> &Self::Target {
         self.client.as_ref().expect("connection released")
+    }
+}
+
+impl std::ops::DerefMut for CancelOnDrop {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.client.as_mut().expect("connection released")
     }
 }
 
@@ -381,14 +387,15 @@ impl PgRdb {
         lease: Duration,
         max: usize,
     ) -> Result<Vec<(TaskMessage, DateTime<Utc>)>> {
-        // Dropped mid-claim, the claim must roll back: nobody would run the
-        // tasks until their leases expired.
-        let client = CancelOnDrop {
+        // Keep the entire batch uncommitted until all queue queries and decoding
+        // succeed. Dropping a blocked claim must roll back earlier queues too.
+        let mut client = CancelOnDrop {
             client: Some(self.pool.get().await?),
             tls: self.tls.clone(),
         };
+        let tx = client.transaction().await?;
         // RETURNING has no order, hence returning the sort key.
-        let stmt = client
+        let stmt = tx
             .prepare_cached(
                 "WITH c AS (
                      SELECT queue, id, pending_since FROM pyasynq_tasks
@@ -412,9 +419,7 @@ impl PgRdb {
                 break;
             }
             let lease_expires_at = Utc::now() + lease;
-            let mut rows = client
-                .query(&stmt, &[qname, &lease_expires_at, &want])
-                .await?;
+            let mut rows = tx.query(&stmt, &[qname, &lease_expires_at, &want]).await?;
             rows.sort_by(|a, b| {
                 let key = |r: &Row| (r.get::<_, Option<DateTime<Utc>>>(1), r.get::<_, String>(2));
                 key(a).cmp(&key(b))
@@ -423,6 +428,10 @@ impl PgRdb {
                 out.push((decode(row.get(0))?, lease_expires_at));
             }
         }
+        // Pre-commit cancellation rolls back via Transaction::drop. Once COMMIT
+        // is sent, cancellation can still leave its outcome unknown; ownership
+        // handoff after commit is a separate lifecycle boundary.
+        tx.commit().await?;
         client.release();
         Ok(out)
     }

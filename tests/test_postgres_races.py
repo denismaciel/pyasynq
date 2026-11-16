@@ -5,6 +5,7 @@ import asyncio
 from typing import Any
 
 import psycopg
+import psycopg.sql
 import pyasynq
 import pytest
 from conftest import FAST, wait_for
@@ -25,7 +26,7 @@ def scalar(conn, query, params=()):
     return row[0]
 
 
-def hold_updates_to(conn, state, key):
+def hold_updates_to(conn, state, key, *, queue=None):
     """Makes updates into `state` wait on advisory lock `key`, held by `conn`."""
     conn.execute(
         f"""CREATE FUNCTION test_hold() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -34,7 +35,16 @@ def hold_updates_to(conn, state, key):
                 RETURN NEW;
             END $$"""
     )
-    conn.execute("CREATE TRIGGER test_hold AFTER UPDATE ON pyasynq_tasks FOR EACH ROW EXECUTE FUNCTION test_hold()")
+    when = (
+        psycopg.sql.SQL("")
+        if queue is None
+        else psycopg.sql.SQL("WHEN (NEW.queue = {})").format(psycopg.sql.Literal(queue))
+    )
+    conn.execute(
+        psycopg.sql.SQL(
+            "CREATE TRIGGER test_hold AFTER UPDATE ON pyasynq_tasks FOR EACH ROW {} EXECUTE FUNCTION test_hold()"
+        ).format(when)
+    )
     conn.execute("SELECT pg_advisory_lock(%s)", (key,))
 
 
@@ -149,3 +159,42 @@ async def test_shutdown_is_bounded_while_the_table_is_locked(pg_url):
             blocker.rollback()
             worker.shutdown()
             await asyncio.wait_for(run, 5)
+
+
+async def test_shutdown_rolls_back_claims_from_earlier_queues(pg_url):
+    client = pyasynq.Client(pg_url)
+    first = client.enqueue("work", queue="first")
+    second = client.enqueue("work", queue="second")
+    handled: list[bool] = []
+    with psycopg.connect(pg_url, autocommit=True) as conn:
+        hold_updates_to(conn, "active", 85015, queue="second")
+        worker = pyasynq.Worker(
+            lambda ctx: handled.append(True),
+            redis_url=pg_url,
+            concurrency=2,
+            queues={"first": 2, "second": 1},
+            strict_priority=True,
+            **SHUTDOWN_FAST,
+        )
+        run = asyncio.create_task(worker.run())
+        try:
+            # Strict priority makes the first claim precede the blocked second.
+            # Capture this claim's backend, not unrelated advisory-lock waiters.
+            claim = await wait_for(
+                lambda: conn.execute(
+                    "SELECT pid FROM pg_stat_activity WHERE wait_event = 'advisory' "
+                    "AND query LIKE '%UPDATE pyasynq_tasks t%'"
+                ).fetchone()
+            )
+            assert task_state(conn, first.id) == "pending"
+            worker.shutdown()
+            await asyncio.wait_for(asyncio.shield(run), 1)
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(85015)")
+            worker.shutdown()
+            await asyncio.wait_for(run, 5)
+        # Wait for actual connection cleanup; a sleep could miss a late commit.
+        await wait_for(lambda: scalar(conn, "SELECT count(*) FROM pg_stat_activity WHERE pid = %s", claim) == 0)
+        assert task_state(conn, first.id) == "pending"
+        assert task_state(conn, second.id) == "pending"
+        assert handled == []
