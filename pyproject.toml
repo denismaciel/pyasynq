@@ -89,7 +89,7 @@ asyncio_default_fixture_loop_scope = "function"
 build = "cp310-* cp314-* cp314t-* cp315-* cp315t-*"
 build-frontend = "uv"
 enable = ["cpython-prerelease"]
-before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.0"
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.100.0"
 environment = { PATH = "$HOME/.cargo/bin:$PATH", CARGO_BUILD_JOBS = "2" }
 test-command = "python -W error {project}/scripts/smoke_wheel.py"
 manylinux-x86_64-image = "manylinux2014"
@@ -97,5 +97,5 @@ manylinux-aarch64-image = "manylinux_2_28"
 musllinux-x86_64-image = "musllinux_1_2"
 
 [tool.cibuildwheel.linux]
-before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.0 && curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/0.12.4/install.sh | sh"
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.100.0 && curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/0.12.4/install.sh | sh"
 environment = { PATH = "$HOME/.local/bin:$HOME/.cargo/bin:$PATH", CARGO_BUILD_JOBS = "2" }

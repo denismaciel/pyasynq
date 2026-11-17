@@ -242,7 +242,7 @@ MIT. See [LICENSE](LICENSE).
 
 Use uv 0.12.4 (`uv sync --locked`) for development and builds. The Nix shell
 bootstraps that exact uv release through its packaged uv (first use needs network).
-CI, release builders and the Nix shell use Rust 1.99.0 from `rust-toolchain.toml`. The in-tree
+CI, release builders and the Nix shell use Rust 1.100.0 from `rust-toolchain.toml`. The in-tree
 `build_backend.py` delegates Python metadata, source archives and wheel layout
 to `uv_build==0.12.4`. Since uv_build itself only supports pure Python, the
 adapter compiles the Rust extension with locked Cargo dependencies, inserts it
